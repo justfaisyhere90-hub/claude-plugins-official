@@ -435,6 +435,24 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     });
   }
 
+  // one-time recurring presets requested by the owner: fixed monthly costs starting October 2026, paid on the 1st.
+  // Skipped if a matching entry (same category and name) already exists.
+  const RULE_PRESETS = [
+    {key:'ruleRent271',  id:'rp-rent',        cat:'housing', note:'Rent (warm)',    amt:271},
+    {key:'ruleElec36',   id:'rp-electricity', cat:'bills',   note:'Electricity',    amt:36},
+    {key:'rulePhone30',  id:'rp-phone',       cat:'bills',   note:'Phone contract', amt:30},
+  ];
+  if (!(window.claude && window.claude.use)) {
+    let added = false;
+    RULE_PRESETS.forEach(pr => {
+      if (lsGet('ledger.preset.' + pr.key, false)) return;
+      const clash = rules.some(r => r.id === pr.id || (r.cat === pr.cat && String(r.note||'').trim().toLowerCase().startsWith(pr.note.split(' ')[0].toLowerCase())));
+      if (!clash) { rules.push({id:pr.id, amt:pr.amt, cat:pr.cat, note:pr.note, day:1, start:'2026-10', skip:[], mt:Date.now()}); added = true; }
+      lsSet('ledger.preset.' + pr.key, true);
+    });
+    if (added) lsSet('ledger.recurring', rules);
+  }
+
   let writeChain = Promise.resolve();
   function queue(fn){ writeChain = writeChain.then(fn).catch(err => { toast(err && err.code === 'quota_exceeded' ? 'Storage is full. Delete old months to add more.' : 'Could not save. Check your connection and try again.'); }); return writeChain; }
 
