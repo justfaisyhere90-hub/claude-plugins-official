@@ -301,6 +301,8 @@ details.how[open] summary{margin-bottom:8px}
 
   <div class="banner" id="sampleBanner" hidden><b>Example data.</b> These figures only show how the app works. Add your first expense and they disappear.</div>
 
+  <div class="remind" id="payRemind" hidden role="status"></div>
+
   <div class="alerts" id="alerts" hidden role="status"></div>
 
   <div class="remind" id="remind" hidden role="status">
@@ -554,13 +556,16 @@ details.how[open] summary{margin-bottom:8px}
     {key:'ruleRent271',  id:'rp-rent',        cat:'housing', note:'Rent (warm)',    amt:271},
     {key:'ruleElec36',   id:'rp-electricity', cat:'bills',   note:'Electricity',    amt:36},
     {key:'rulePhone30',  id:'rp-phone',       cat:'bills',   note:'Phone contract', amt:30},
+    // loan repayment to Isabel: 10 payments of 161, 1 Nov 2026 – 1 Aug 2027, with a reminder to send it
+    {key:'ruleLoanIsabel', id:'rp-loan-isabel', cat:'bills', note:'Loan – Isabel', amt:161, start:'2026-11', end:'2027-08', remind:'Send 161 € to Isabel'},
   ];
   if (!(window.claude && window.claude.use)) {
     let added = false;
     RULE_PRESETS.forEach(pr => {
       if (lsGet('ledger.preset.' + pr.key, false)) return;
       const clash = rules.some(r => r.id === pr.id || (r.cat === pr.cat && String(r.note||'').trim().toLowerCase().startsWith(pr.note.split(' ')[0].toLowerCase())));
-      if (!clash) { rules.push({id:pr.id, amt:pr.amt, cat:pr.cat, note:pr.note, day:1, start:'2026-10', skip:[], mt:Date.now()}); added = true; }
+      if (!clash) { rules.push({id:pr.id, amt:pr.amt, cat:pr.cat, note:pr.note, day:1, start:pr.start || '2026-10', skip:[], mt:Date.now(),
+        ...(pr.end ? {end: pr.end} : {}), ...(pr.remind ? {remind: pr.remind, sent: []} : {})}); added = true; }
       lsSet('ledger.preset.' + pr.key, true);
     });
     if (added) lsSet('ledger.recurring', rules);
@@ -593,7 +598,7 @@ details.how[open] summary{margin-bottom:8px}
     Object.values(months).forEach(a => (a||[]).forEach(i => ids.add(i.id)));
     const touched = new Set(); let n = 0;
     rules.forEach(r => {
-      for (let ym = r.start; ym <= thisYm; ym = shiftYm(ym,1)) {
+      for (let ym = r.start; ym <= thisYm && (!r.end || ym <= r.end); ym = shiftYm(ym,1)) {
         const date = occDate(r, ym), id = r.id + '-' + ym;
         if (ids.has(id) || (r.skip||[]).includes(ym)) continue;
         if (ym === thisYm && Number(date.slice(8)) > today.getDate()) continue;
@@ -615,8 +620,11 @@ details.how[open] summary{margin-bottom:8px}
   function nextDate(r){
     let ym = r.start > thisYm ? r.start : thisYm;
     if (ym === thisYm && (hasId(r.id + '-' + ym) || (r.skip||[]).includes(ym) || Number(occDate(r, ym).slice(8)) < today.getDate())) ym = shiftYm(ym, 1);
+    if (r.end && ym > r.end) return null;                    // all payments done
     return occDate(r, ym);
   }
+  const monthsBetween = (a, b) => (Number(b.slice(0,4)) - Number(a.slice(0,4))) * 12 + Number(b.slice(5)) - Number(a.slice(5));
+  const ruleActive = r => !r.end || r.end >= thisYm;
   const ordinal = d => d + (d % 10 === 1 && d !== 11 ? 'st' : d % 10 === 2 && d !== 12 ? 'nd' : d % 10 === 3 && d !== 13 ? 'rd' : 'th');
 
   async function connect(){
@@ -877,12 +885,22 @@ details.how[open] summary{margin-bottom:8px}
     if (!rules.length) {
       $('recBody').innerHTML = '<p class="empty">Add rent, your phone contract and other fixed bills once. They get logged automatically every month on the day you choose.</p>' + PRESETS;
     } else {
-      const fixed = rules.reduce((s,r) => s + r.amt, 0);
-      $('recBody').innerHTML = '<div class="recs">' + rules.slice().sort((a,b) => a.day - b.day).map(r => {
+      const fixed = rules.filter(ruleActive).reduce((s,r) => s + r.amt, 0);
+      $('recBody').innerHTML = '<div class="recs">' + rules.slice().sort((a,b) => (ruleActive(b) - ruleActive(a)) || a.day - b.day).map(r => {
         const c = catById[r.cat] || catById.other;
-        const nd = new Date(nextDate(r) + 'T12:00:00');
-        return '<button class="recrow" data-rid="'+r.id+'"><span class="dot" style="background:var('+c.c+')"></span>'+
-          '<span><b>'+esc(r.note || c.name)+'</b><small>Every '+ordinal(r.day)+' · next '+nd.toLocaleDateString(undefined,{day:'numeric', month:'short'})+'</small></span>'+
+        const nx = nextDate(r);
+        let when;
+        if (!nx) when = '✓ All ' + (monthsBetween(r.start, r.end) + 1) + ' payments done';
+        else {
+          const nd = new Date(nx + 'T12:00:00');
+          when = 'Every ' + ordinal(r.day) + ' · next ' + nd.toLocaleDateString(undefined, {day:'numeric', month:'short'});
+          if (r.end) {
+            const total = monthsBetween(r.start, r.end) + 1, n = monthsBetween(r.start, nx.slice(0,7)) + 1;
+            when += ' · payment ' + n + ' of ' + total + ', last ' + new Date(r.end + '-15').toLocaleDateString(undefined, {month:'short', year:'numeric'});
+          }
+        }
+        return '<button class="recrow" data-rid="'+r.id+'"'+(nx ? '' : ' style="opacity:.6"')+'><span class="dot" style="background:var('+c.c+')"></span>'+
+          '<span><b>'+esc(r.note || c.name)+'</b><small>'+when+'</small></span>'+
           '<span class="amt num">'+fmt(r.amt)+'</span></button>';
       }).join('') + '</div>' +
       '<div class="recsum num"><span>Fixed costs per month</span><b>'+fmt(fixed)+'</b></div>' + PRESETS;
@@ -929,6 +947,24 @@ details.how[open] summary{margin-bottom:8px}
     if (due) $('remindText').textContent = lastB
       ? 'Your last backup was ' + Math.floor((Date.now() - lastB)/DAY) + ' days ago. Your expenses are only on this phone, so save a fresh copy to iCloud.'
       : 'You have not made a backup yet. Your expenses are only on this phone, so save a copy to iCloud.';
+
+    // payment reminders (e.g. loan instalments): from 2 days before the due date until marked as sent
+    const payDue = [];
+    rules.filter(r => r.remind).forEach(r => {
+      [thisYm, shiftYm(thisYm, 1)].forEach(ym => {
+        if (ym < r.start || (r.end && ym > r.end) || (r.sent || []).includes(ym)) return;
+        const d = new Date(occDate(r, ym) + 'T00:00:00');
+        if (Date.now() >= d.getTime() - 2 * 86400000) payDue.push({r, ym, d});
+      });
+    });
+    $('payRemind').hidden = !payDue.length || view === 'year';
+    $('payRemind').innerHTML = payDue.map(({r, ym, d}) => {
+      const n = monthsBetween(r.start, ym) + 1, total = r.end ? monthsBetween(r.start, r.end) + 1 : 0;
+      const late = d < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      return '<div class="budgetline" style="align-items:center"><span><b>'+esc(r.remind)+'</b><br><small style="color:var(--muted)">'+
+        (late ? 'Was due ' : 'Due ') + d.toLocaleDateString(undefined, {day:'numeric', month:'short'}) + (total ? ' · payment ' + n + ' of ' + total : '') +
+        '</small></span><button type="button" class="btn primary" style="flex:none;padding:10px 14px" data-sent="'+r.id+'|'+ym+'">Mark as sent</button></div>';
+    }).join('');
 
     // warning strip
     const warn = shown.filter(c => c.b && catStatus(c.v, c.b).key !== 'good').sort((a,b) => b.v/b.b - a.v/a.b);
@@ -1169,7 +1205,9 @@ details.how[open] summary{margin-bottom:8px}
         .map(i => ({id:i.id, amt:Math.round(i.amt*100)/100, cat:catById[i.cat] ? i.cat : 'other', note:String(i.note||'').slice(0,60), date:i.date, ts:Number(i.ts)||0, ...(i.rid ? {rid:String(i.rid)} : {})}));
       const haveR = new Set(rules.map(r => r.id));
       const addR = (Array.isArray(d.rules) ? d.rules : []).filter(r => r && typeof r.id === 'string' && !haveR.has(r.id) && r.amt > 0 && r.day >= 1 && r.day <= 31 && /^\d{4}-\d{2}$/.test(r.start||''))
-        .map(r => ({id:r.id, amt:r.amt, cat:catById[r.cat] ? r.cat : 'other', note:String(r.note||'').slice(0,60), day:Math.round(r.day), start:r.start, skip:Array.isArray(r.skip) ? r.skip.filter(x => typeof x === 'string') : []}));
+        .map(r => ({id:r.id, amt:r.amt, cat:catById[r.cat] ? r.cat : 'other', note:String(r.note||'').slice(0,60), day:Math.round(r.day), start:r.start, skip:Array.isArray(r.skip) ? r.skip.filter(x => typeof x === 'string') : [],
+          ...(/^\d{4}-\d{2}$/.test(r.end||'') ? {end:r.end} : {}),
+          ...(typeof r.remind === 'string' ? {remind:r.remind.slice(0,60), sent:Array.isArray(r.sent) ? r.sent.filter(x => typeof x === 'string') : []} : {})}));
       if (!add.length && !addR.length) { toast('Everything in this backup is already here'); return; }
       pending = {add, addR, settings: d.settings};
       const when = d.exported ? new Date(d.exported).toLocaleDateString(undefined,{day:'numeric', month:'short', year:'numeric'}) : 'an earlier date';
@@ -1418,6 +1456,16 @@ details.how[open] summary{margin-bottom:8px}
   $('wCancel').addEventListener('click', () => { wPending = []; closeAll(); });
   $('wClose').addEventListener('click', () => { wPending = []; closeAll(); });
 
+  $('payRemind').addEventListener('click', e => {
+    const b = e.target.closest('[data-sent]'); if (!b) return;
+    const [rid, ym] = b.dataset.sent.split('|');
+    const r = rules.find(x => x.id === rid); if (!r) return;
+    r.sent = [...(r.sent || []), ym]; r.mt = Date.now();
+    saveRules(); render();
+    const total = r.end ? monthsBetween(r.start, r.end) + 1 : 0, n = monthsBetween(r.start, ym) + 1;
+    toast(total ? 'Payment ' + n + ' of ' + total + ' marked as sent' + (n === total ? ' · all done! 🎉' : '') : 'Marked as sent');
+  });
+
   // ---------- events ----------
   $('addBtn').addEventListener('click', () => openSheet(null));
   $('closeSheet').addEventListener('click', closeAll);
@@ -1432,7 +1480,7 @@ details.how[open] summary{margin-bottom:8px}
   const goalSaved = g => (g.moves || []).reduce((a, m) => a + m.amt, 0);
   function suggestedTarget(){
     // three months of planned spending: fixed recurring costs + category limits, else recent average
-    const planned = rules.reduce((a, r) => a + r.amt, 0) + Object.values(catLimits()).reduce((a, v) => a + v, 0);
+    const planned = rules.filter(ruleActive).reduce((a, r) => a + r.amt, 0) + Object.values(catLimits()).reduce((a, v) => a + v, 0);
     const recent = [1,2,3].map(k => (months[shiftYm(thisYm, -k)] || []).reduce((a, i) => a + i.amt, 0)).filter(v => v > 0);
     const base = planned || (recent.length ? recent.reduce((a,b) => a + b, 0) / recent.length : 0);
     return base ? Math.round(base * 3 / 100) * 100 : 3000;
