@@ -245,6 +245,20 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .xbtn.armed{background:var(--crit);color:#fff}
 .gactions{display:flex;gap:10px}
 .gactions .btn{padding:11px}
+/* apple pay import */
+.wlist{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+.wrow{display:grid;grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-bottom:1px dashed var(--line)}
+.wrow:last-child{border-bottom:0}
+.wrow input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent);margin:0}
+.wrow b{font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrow small{color:var(--muted);font-size:12.5px}
+.wrow .amt{font-weight:600}
+.wrow select{grid-column:2/-1;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 8px;font-size:14px}
+.wrow.off{opacity:.45}
+.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--ink-2)}
+.steps code{font:12.5px ui-monospace,Menlo,monospace;background:var(--surface-2);padding:1px 5px;border-radius:5px;color:var(--ink)}
+details.how summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:14px}
+details.how[open] summary{margin-bottom:8px}
 /* backup reminder */
 .remind{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px;font-size:14px}
 .remind .actions .btn{padding:10px}
@@ -419,6 +433,23 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       <div class="cbgrid" id="cbGrid"></div>
     </div>
     <div class="actions"><button type="submit" class="btn primary">Save settings</button></div>
+    <div class="bk" id="wSection">
+      <h4>Apple Pay payments</h4>
+      <p class="hint">Payments you make with Apple Pay can be collected by an iPhone Shortcut and added here in one go.</p>
+      <button type="button" class="btn" id="wImportBtn">Import Apple Pay payments <small>from the Shortcut file</small></button>
+      <input type="file" id="wFile" accept=".txt,.csv,text/plain,text/csv" hidden>
+      <details class="how">
+        <summary>How to set up the Shortcut (once, about 5 minutes)</summary>
+        <ol class="steps">
+          <li>Open the <b>Shortcuts</b> app → <b>Automation</b> → <b>+</b> → <b>Transaction</b>.</li>
+          <li>Choose your cards, pick <b>Run Immediately</b>, then <b>Next</b> → <b>New Blank Automation</b>.</li>
+          <li>Add the action <b>Format Date</b>: date <b>Current Date</b>, format <b>Custom</b>, <code>yyyy-MM-dd</code>.</li>
+          <li>Add the action <b>Append to Text File</b>. In the text, put: <b>Formatted Date</b> <code> ; </code> <b>Amount</b> <code> ; </code> <b>Merchant</b> (the last two come from <b>Shortcut Input</b>).</li>
+          <li>Set the file path to <code>wallet-payments.txt</code> and turn on <b>Make New Line</b>. Tap <b>Done</b>.</li>
+          <li>At the end of the month, tap <b>Import Apple Pay payments</b> above and pick <b>iCloud Drive → Shortcuts → wallet-payments.txt</b>.</li>
+        </ol>
+      </details>
+    </div>
     <div class="bk">
       <h4>Backup</h4>
       <p class="hint" id="bkLast"></p>
@@ -432,6 +463,16 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       </div>
     </div>
   </form>
+</div>
+
+<div class="sheet" id="wSheet" hidden role="dialog" aria-modal="true" aria-labelledby="wTitle">
+  <div class="inner">
+    <div class="grab"></div>
+    <h3><span id="wTitle">Apple Pay payments</span><button type="button" class="x" id="wClose" aria-label="Close">×</button></h3>
+    <p class="hint" id="wSummary"></p>
+    <ul class="wlist" id="wList"></ul>
+    <div class="actions"><button type="button" class="btn" id="wCancel">Cancel</button><button type="button" class="btn primary" id="wAdd">Add</button></div>
+  </div>
 </div>
 
 <div class="tip" id="tip" hidden></div>
@@ -972,7 +1013,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     $('scrim').hidden = false; $('sheet').hidden = false;
     setTimeout(() => $('fAmount').focus(), 50);
   }
-  function closeAll(){ $('scrim').hidden = true; $('sheet').hidden = true; $('settings').hidden = true; editing = null; }
+  function closeAll(){ $('scrim').hidden = true; $('sheet').hidden = true; $('settings').hidden = true; $('wSheet').hidden = true; editing = null; }
 
   $('form').addEventListener('submit', e => {
     e.preventDefault();
@@ -1219,7 +1260,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     [/tk\s*maxx/i, 'TK Maxx', 'shopping'], [/\bsaturn\b/i, 'Saturn', 'shopping'], [/media\s*markt/i, 'MediaMarkt', 'shopping'],
     [/mc\s*donald/i, "McDonald's", 'eating'], [/burger\s*king/i, 'Burger King', 'eating'], [/starbucks/i, 'Starbucks', 'eating'],
     [/deutsche\s*bahn|\bdb\s*fernverkehr/i, 'Deutsche Bahn', 'transport'], [/lufthansa|eurowings|ryanair|easyjet|condor/i, null, 'transport'],
-    [/\bhotel\b/i, null, 'transport'],
+    [/\bhotel\b|booking\.com|airbnb|expedia/i, null, 'transport'],
+    [/lieferando|uber\s*eats|wolt|domino/i, null, 'eating'], [/amazon|zalando|otto\b|decathlon/i, null, 'shopping'],
+    [/western\s*union|remitly|\bwise\b|transfergo|\bria\b|moneygram|worldremit/i, null, 'other'],
     [/restaurant|ristorante|pizzeria|trattoria|imbiss|d[öo]ner|kebab|sushi|\bcaf[eé]\b|b[äa]ckerei|baeckerei|\bbistro\b/i, null, 'eating'],
   ];
   const AMT = /(\d{1,3}(?:[.\s]\d{3})*|\d+)\s?[,.]\s?(\d{2})(?!\d)/g;
@@ -1277,6 +1320,103 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       setScan('Something went wrong reading the photo. Please type the amount.', true);
     } finally { btn.disabled = false; tessProgress = null; }
   });
+
+  // ---------- Apple Pay import (file written by an iPhone Shortcut) ----------
+  const MONTHS_EN = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+    mär:3,mrz:3,mai:5,okt:10,dez:12};
+  function parseWDate(t){
+    let m = t.match(/(\d{4})-(\d{2})-(\d{2})/); if (m) return m[1]+'-'+m[2]+'-'+m[3];
+    m = t.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4}|\d{2})/); if (m) return (m[3].length === 2 ? '20'+m[3] : m[3])+'-'+pad(m[2])+'-'+pad(m[1]);
+    m = t.match(/(\d{1,2})\.?\s+([A-Za-zäÄ]{3})[a-zä]*\.?\s+(\d{4})/); if (m && MONTHS_EN[m[2].toLowerCase()]) return m[3]+'-'+pad(MONTHS_EN[m[2].toLowerCase()])+'-'+pad(m[1]);
+    m = t.match(/([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})/); if (m && MONTHS_EN[m[1].toLowerCase()]) return m[3]+'-'+pad(MONTHS_EN[m[1].toLowerCase()])+'-'+pad(m[2]);
+    return null;
+  }
+  function parseWAmount(t){
+    if (/-\s*[€$£]?\s*\d/.test(t)) return null;                     // refunds
+    const m = t.match(/\d[\d.,\s]*\d|\d/); if (!m) return null;
+    let n = m[0].replace(/\s/g, '');
+    const lc = n.lastIndexOf(','), ld = n.lastIndexOf('.');
+    if (lc > -1 && ld > -1) n = lc > ld ? n.replace(/\./g, '').replace(',', '.') : n.replace(/,/g, '');
+    else if (lc > -1) n = /,\d{1,2}$/.test(n) ? n.replace(',', '.') : n.replace(/,/g, '');
+    else if (ld > -1 && !/\.\d{1,2}$/.test(n)) n = n.replace(/\./g, '');
+    const v = Math.round(Number(n) * 100) / 100;
+    return v > 0 && v < 100000 ? v : null;
+  }
+  function hashStr(t){ let h = 2166136261; for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+  function guessCat(merchant){ for (const [re, , c] of STORES) if (re.test(merchant)) return c; return 'shopping'; }
+  function parseWallet(text){
+    const out = [], seenInFile = {};
+    text.split(/\r?\n/).forEach(line => {
+      const parts = line.split(/\s*[;|\t]\s*/).map(x => x.trim()).filter(Boolean);
+      if (parts.length < 2) return;
+      let date = null, amt = null; const rest = [];
+      parts.forEach(pt => {
+        const d = !date && parseWDate(pt);
+        if (d) { date = d; return; }
+        const hasMoney = /[€$£]|eur|usd|\d[.,]\d{2}\b/i.test(pt) && !/[a-z]{4,}/i.test(pt.replace(/eur|usd/ig, ''));
+        const a = amt === null && hasMoney ? parseWAmount(pt) : null;
+        if (a) { amt = a; return; }
+        if (amt === null && /-\s*[€$£]?\s*\d/.test(pt)) { amt = -1; return; }   // refund: mark and skip
+        rest.push(pt);
+      });
+      if (!date || !(amt > 0)) return;
+      const merchant = rest.join(' ').replace(/\s+/g, ' ').slice(0, 40) || 'Apple Pay';
+      const base = date + '|' + amt.toFixed(2) + '|' + merchant.toLowerCase();
+      seenInFile[base] = (seenInFile[base] || 0) + 1;                // two identical coffees on one day stay two
+      out.push({id: 'w' + hashStr(base + '#' + seenInFile[base]), date, amt, note: merchant, cat: guessCat(merchant)});
+    });
+    return out;
+  }
+  let wPending = [];
+  $('wImportBtn').addEventListener('click', () => { $('wFile').value = ''; $('wFile').click(); });
+  $('wFile').addEventListener('change', () => {
+    const f = $('wFile').files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const all = parseWallet(String(rd.result || ''));
+      if (!all.length) { toast('No payments found in that file'); return; }
+      const seen = new Set(lsGet('ledger.walletSeen', []));
+      const have = new Set(Object.values(months).flat().map(i => i.id));
+      wPending = all.filter(p => !seen.has(p.id) && !have.has(p.id)).sort((a,b) => b.date.localeCompare(a.date));
+      const old = all.length - wPending.length;
+      if (!wPending.length) { toast('All ' + all.length + ' payments were already imported'); return; }
+      $('wSummary').textContent = wPending.length + ' new payment' + (wPending.length === 1 ? '' : 's') + (old ? ' (' + old + ' already imported)' : '') + '. Untick any you don\'t want and check the categories.';
+      $('wList').innerHTML = wPending.map((p, i) =>
+        '<li class="wrow num" data-i="'+i+'"><input type="checkbox" checked aria-label="Include this payment">'+
+        '<span><b>'+esc(p.note)+'</b><small>'+new Date(p.date + 'T12:00:00').toLocaleDateString(undefined,{weekday:'short', day:'numeric', month:'short'})+'</small></span>'+
+        '<span class="amt">'+fmt(p.amt)+'</span>'+
+        '<select aria-label="Category">'+CATS.map(c => '<option value="'+c.id+'"'+(c.id === p.cat ? ' selected' : '')+'>'+esc(c.name)+'</option>').join('')+'</select></li>').join('');
+      updateWAdd();
+      $('settings').hidden = true; $('scrim').hidden = false; $('wSheet').hidden = false;
+    };
+    rd.readAsText(f);
+  });
+  function updateWAdd(){
+    const n = [...$('wList').querySelectorAll('input[type=checkbox]')].filter(x => x.checked).length;
+    $('wAdd').textContent = n ? 'Add ' + n + ' payment' + (n === 1 ? '' : 's') : 'Nothing selected';
+    $('wAdd').disabled = !n;
+  }
+  $('wList').addEventListener('change', e => {
+    const row = e.target.closest('.wrow'); if (!row) return;
+    if (e.target.type === 'checkbox') { row.classList.toggle('off', !e.target.checked); updateWAdd(); }
+  });
+  $('wAdd').addEventListener('click', () => {
+    const touched = new Set(), seen = new Set(lsGet('ledger.walletSeen', []));
+    let n = 0;
+    $('wList').querySelectorAll('.wrow').forEach(row => {
+      const p = wPending[Number(row.dataset.i)];
+      seen.add(p.id);                                     // skipped ones are remembered too, so they don't come back
+      if (!row.querySelector('input').checked) return;
+      const ym = p.date.slice(0,7);
+      (months[ym] = months[ym] || []).push({id: p.id, amt: p.amt, cat: row.querySelector('select').value, note: p.note, date: p.date, ts: Date.now(), src: 'applepay'});
+      touched.add(ym); n++;
+    });
+    lsSet('ledger.walletSeen', [...seen]);
+    wPending = []; closeAll(); render(); touched.forEach(saveMonth);
+    toast('Added ' + n + ' Apple Pay payment' + (n === 1 ? '' : 's'));
+  });
+  $('wCancel').addEventListener('click', () => { wPending = []; closeAll(); });
+  $('wClose').addEventListener('click', () => { wPending = []; closeAll(); });
 
   // ---------- events ----------
   $('addBtn').addEventListener('click', () => openSheet(null));

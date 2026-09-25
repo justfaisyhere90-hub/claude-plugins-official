@@ -19,6 +19,7 @@ A phone-friendly expense tracker in one HTML file.
 - Scan receipt: photo → total, shop, date and category filled in (on-device text recognition)
 - Monthly income: needs / wants / sending home / saved split and yearly savings rate
 - Emergency buffer goal: target, money moved in or taken out, progress and months to go
+- Apple Pay import: an iPhone Shortcut logs each Wallet payment to a text file; import it with review and category guesses, duplicates skipped
 - Recurring entries (rent, phone contract) logged automatically each month
 - Backup download (.json), spreadsheet export (.csv) and restore
 
