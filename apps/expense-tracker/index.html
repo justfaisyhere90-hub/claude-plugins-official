@@ -419,6 +419,13 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   settings = Object.assign(settings, lsGet('ledger.settings', {}));
   rules = lsGet('ledger.recurring', []).map(r => ({...r, skip:(r.skip||[]).slice()}));
 
+  // one-time preset requested by the owner: 375 limit for "Sending money home" (this-device app only)
+  if (!(window.claude && window.claude.use) && !lsGet('ledger.preset.otherLimit375', false)) {
+    const cb = {...(settings.catBudgets || {})};
+    if (!(Number(cb.other) > 0)) { cb.other = 375; settings = {...settings, catBudgets: cb}; lsSet('ledger.settings', settings); }
+    lsSet('ledger.preset.otherLimit375', true);
+  }
+
   let writeChain = Promise.resolve();
   function queue(fn){ writeChain = writeChain.then(fn).catch(err => { toast(err && err.code === 'quota_exceeded' ? 'Storage is full. Delete old months to add more.' : 'Could not save. Check your connection and try again.'); }); return writeChain; }
 
