@@ -387,7 +387,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     {id:'eating',    name:'Eating out',     c:'--c5'},
     {id:'health',    name:'Health',         c:'--c6'},
     {id:'shopping',  name:'Shopping',       c:'--c7'},
-    {id:'other',     name:'Other',          c:'--c8'},
+    {id:'other',     name:'Sending money home', c:'--c8'},
   ];
   CATS.forEach(c => c.def = c.name);
   const catById = Object.fromEntries(CATS.map(c=>[c.id,c]));
@@ -525,7 +525,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       ['housing',850,'Rent',1],['bills',42,'Phone contract',3],['bills',95,'Electricity',5],
       ['groceries',64.3,'REWE',2],['groceries',38.9,'Lidl',9],['groceries',52.15,'Aldi',16],['groceries',47.6,'REWE',23],
       ['transport',58,'Deutschlandticket',1],['eating',18.5,'Lunch with team',11],['eating',32,'Dinner out',19],
-      ['health',12.99,'Pharmacy',14],['shopping',79.9,'Shoes',21],['other',25,'Gift',25]
+      ['health',12.99,'Pharmacy',14],['shopping',79.9,'Shoes',21],['other',200,'Transfer to family',25]
     ];
     for (let k=-5;k<=0;k++){
       const ym = shiftYm(thisYm,k); const lim = ym===thisYm ? today.getDate() : daysIn(ym);
