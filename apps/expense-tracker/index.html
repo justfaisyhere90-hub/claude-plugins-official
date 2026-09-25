@@ -171,6 +171,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .toggle{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;cursor:pointer}
 .toggle input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 .hint{font-size:13px;color:var(--muted);margin:0}
+/* backup */
+.bk{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px}
+.bk h4{margin:0;font:600 13px/1.2 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.bk .btn{flex:none;width:100%;text-align:left;display:flex;justify-content:space-between;align-items:center}
+.bk .btn small{color:var(--muted);font-weight:500;font-size:12.5px}
+.restore{background:var(--accent-soft);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:14px}
 .foot{font-size:12px;color:var(--muted);text-align:center}
 @media (max-width:420px){.brand{display:none}.top{justify-content:space-between}}
 @media (max-width:380px){.stats{grid-template-columns:1fr 1fr}}
@@ -185,7 +191,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       <div class="monthlabel" id="monthLabel" aria-live="polite"></div>
       <button class="iconbtn" id="next" aria-label="Next month">›</button>
     </div>
-    <button class="iconbtn" id="settingsBtn" aria-label="Budget and currency">⚙</button>
+    <button class="iconbtn" id="settingsBtn" aria-label="Settings and backup">⚙</button>
   </header>
 
   <section class="hero">
@@ -257,7 +263,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 <div class="sheet" id="settings" hidden role="dialog" aria-modal="true" aria-labelledby="setTitle">
   <form id="setForm" novalidate>
     <div class="grab"></div>
-    <h3><span id="setTitle">Budget &amp; currency</span><button type="button" class="x" id="closeSet" aria-label="Close">×</button></h3>
+    <h3><span id="setTitle">Settings</span><button type="button" class="x" id="closeSet" aria-label="Close">×</button></h3>
     <label class="f">Monthly budget (leave empty for none)<input class="t num" id="sBudget" inputmode="decimal" placeholder="e.g. 1800"></label>
     <label class="f">Currency
       <select class="t" id="sCur">
@@ -270,6 +276,18 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       </select>
     </label>
     <div class="actions"><button type="submit" class="btn primary">Save settings</button></div>
+    <div class="bk">
+      <h4>Backup</h4>
+      <p class="hint" id="bkLast"></p>
+      <button type="button" class="btn" id="bkJson">Download backup <small>.json · can be restored</small></button>
+      <button type="button" class="btn" id="bkCsv">Export to spreadsheet <small>.csv · Excel, Sheets</small></button>
+      <button type="button" class="btn" id="bkRestoreBtn">Restore from backup <small>adds missing entries</small></button>
+      <input type="file" id="bkFile" accept=".json,application/json" hidden>
+      <div class="restore" id="bkConfirm" hidden>
+        <span id="bkSummary"></span>
+        <div class="actions"><button type="button" class="btn" id="bkCancel">Cancel</button><button type="button" class="btn primary" id="bkApply">Restore</button></div>
+      </div>
+    </div>
   </form>
 </div>
 
@@ -650,6 +668,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   function openSettings(){
     $('sBudget').value = settings.budget ? settings.budget : '';
     $('sCur').value = settings.currency || 'EUR';
+    showLastBackup(); $('bkConfirm').hidden = true; pending = null;
     $('scrim').hidden = false; $('settings').hidden = false;
     setTimeout(() => $('sBudget').focus(), 50);
   }
@@ -659,6 +678,84 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const b = raw ? parseAmt(raw) : 0;
     settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value};
     closeAll(); render(); saveSettings(); toast('Settings saved');
+  });
+
+  // ---------- backup ----------
+  const allItems = () => Object.values(months).flat().filter(Boolean);
+  function showLastBackup(){
+    const t = lsGet('ledger.lastBackup', 0);
+    $('bkLast').textContent = t ? 'Last backup on this device: ' + new Date(t).toLocaleDateString(undefined,{day:'numeric', month:'short', year:'numeric'}) + '.'
+      : 'Download a backup now and then, and keep it in your Files or Google Drive.';
+  }
+  async function saveFile(filename, text, mime){
+    let dl = null;
+    if (window.claude && window.claude.use) { try { dl = await window.claude.use('downloads'); } catch(e) { dl = null; } }
+    if (dl) {
+      try { await dl.save({filename, data: text}); return true; }
+      catch(err) { if (!err || err.code !== 'declined') toast(err && err.code === 'rate_limited' ? 'A save is already open. Finish it first.' : 'Could not save the file here.'); return false; }
+    }
+    try {
+      const url = URL.createObjectURL(new Blob([text], {type: mime}));
+      const a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      return true;
+    } catch(e) { toast('Could not save the file here.'); return false; }
+  }
+  const stamp = () => today.toISOString().slice(0,10);
+  $('bkJson').addEventListener('click', async () => {
+    if (!allItems().length && !rules.length) { toast('Nothing to back up yet'); return; }
+    const data = {app:'monthly-expenses', version:1, exported:new Date().toISOString(), settings, rules, months};
+    if (await saveFile('expenses-backup-' + stamp() + '.json', JSON.stringify(data, null, 1), 'application/json')) {
+      lsSet('ledger.lastBackup', Date.now()); showLastBackup(); toast('Backup saved');
+    }
+  });
+  $('bkCsv').addEventListener('click', async () => {
+    const items = allItems().sort((a,b) => a.date.localeCompare(b.date));
+    if (!items.length) { toast('Nothing to export yet'); return; }
+    const q = v => { v = String(v ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; };
+    const rows = [['Date','Month','Category','Note','Amount','Currency','Recurring']].concat(items.map(i =>
+      [i.date, i.date.slice(0,7), (catById[i.cat]||catById.other).name, i.note||'', i.amt.toFixed(2), settings.currency||'EUR', i.rid ? 'yes' : '']));
+    if (await saveFile('expenses-' + stamp() + '.csv', '﻿' + rows.map(r => r.map(q).join(',')).join('\r\n'), 'text/csv')) toast('Spreadsheet saved');
+  });
+
+  let pending = null;
+  const validItem = i => i && typeof i.id === 'string' && typeof i.amt === 'number' && i.amt > 0 && /^\d{4}-\d{2}-\d{2}$/.test(i.date || '');
+  $('bkRestoreBtn').addEventListener('click', () => { $('bkFile').value = ''; $('bkFile').click(); });
+  $('bkFile').addEventListener('change', () => {
+    const f = $('bkFile').files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      let d; try { d = JSON.parse(rd.result); } catch(e) { d = null; }
+      if (!d || d.app !== 'monthly-expenses' || typeof d.months !== 'object') { toast('That file is not an expenses backup'); return; }
+      const have = new Set(allItems().map(i => i.id));
+      const add = Object.values(d.months).flat().filter(validItem).filter(i => !have.has(i.id))
+        .map(i => ({id:i.id, amt:Math.round(i.amt*100)/100, cat:catById[i.cat] ? i.cat : 'other', note:String(i.note||'').slice(0,60), date:i.date, ts:Number(i.ts)||0, ...(i.rid ? {rid:String(i.rid)} : {})}));
+      const haveR = new Set(rules.map(r => r.id));
+      const addR = (Array.isArray(d.rules) ? d.rules : []).filter(r => r && typeof r.id === 'string' && !haveR.has(r.id) && r.amt > 0 && r.day >= 1 && r.day <= 31 && /^\d{4}-\d{2}$/.test(r.start||''))
+        .map(r => ({id:r.id, amt:r.amt, cat:catById[r.cat] ? r.cat : 'other', note:String(r.note||'').slice(0,60), day:Math.round(r.day), start:r.start, skip:Array.isArray(r.skip) ? r.skip.filter(x => typeof x === 'string') : []}));
+      if (!add.length && !addR.length) { toast('Everything in this backup is already here'); return; }
+      pending = {add, addR, settings: d.settings};
+      const when = d.exported ? new Date(d.exported).toLocaleDateString(undefined,{day:'numeric', month:'short', year:'numeric'}) : 'an earlier date';
+      $('bkSummary').textContent = 'Backup from ' + when + ': ' + add.length + ' expense' + (add.length === 1 ? '' : 's') + (addR.length ? ' and ' + addR.length + ' recurring' : '') + ' not in the app yet. Nothing you have now is removed.';
+      $('bkConfirm').hidden = false;
+    };
+    rd.readAsText(f);
+  });
+  $('bkCancel').addEventListener('click', () => { pending = null; $('bkConfirm').hidden = true; });
+  $('bkApply').addEventListener('click', () => {
+    if (!pending) return;
+    const touched = new Set();
+    pending.add.forEach(i => { const ym = i.date.slice(0,7); (months[ym] = months[ym] || []).push(i); touched.add(ym); });
+    rules = rules.concat(pending.addR);
+    const s = pending.settings;
+    let setChanged = false;
+    if (s && !settings.budget && Number(s.budget) > 0) { settings = {...settings, budget:Number(s.budget)}; setChanged = true; }
+    const n = pending.add.length;
+    pending = null; $('bkConfirm').hidden = true;
+    closeAll(); render();
+    touched.forEach(saveMonth); saveRules(); if (setChanged) saveSettings();
+    toast('Restored ' + n + ' expense' + (n === 1 ? '' : 's'));
   });
 
   // ---------- events ----------
