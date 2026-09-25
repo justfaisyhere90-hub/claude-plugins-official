@@ -55,7 +55,11 @@ button{cursor:pointer}
 
 /* header */
 header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 8px;display:flex;align-items:center;gap:8px}
-.brand{font:700 13px/1 var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);flex:1}
+.brand{display:flex;align-items:center;gap:9px;flex:1;min-width:0}
+.logo{width:36px;height:36px;flex:none;border-radius:9px;display:block}
+.wordmark{display:flex;flex-direction:column;line-height:1;min-width:0}
+.wordmark b{font:700 16px/1.05 var(--display);letter-spacing:-.01em;color:var(--ink)}
+.wordmark span{font:600 9.5px/1.2 var(--body);letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
 .monthnav{display:flex;align-items:center;gap:4px}
 .iconbtn{width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;font-size:18px;line-height:1}
 .iconbtn:disabled{opacity:.35;cursor:default}
@@ -178,14 +182,17 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .bk .btn small{color:var(--muted);font-weight:500;font-size:12.5px}
 .restore{background:var(--accent-soft);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;font-size:14px}
 .foot{font-size:12px;color:var(--muted);text-align:center}
-@media (max-width:420px){.brand{display:none}.top{justify-content:space-between}}
+@media (max-width:480px){.top{flex-wrap:wrap;row-gap:10px}#settingsBtn{order:2}.monthnav{order:3;flex-basis:100%;justify-content:space-between;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:3px}.monthnav .iconbtn{border:0;background:var(--surface-2);width:34px;height:34px}.monthlabel{flex:1}}
 @media (max-width:380px){.stats{grid-template-columns:1fr 1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
 <div class="wrap">
   <header class="top">
-    <div class="brand">Monthly Expenses</div>
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#1f5f4a"/><rect x="11" y="34" width="8" height="15" rx="2" fill="#eda100"/><rect x="22" y="25" width="8" height="24" rx="2" fill="#eb6834"/><rect x="33" y="30" width="8" height="19" rx="2" fill="#5fc49d"/><rect x="44" y="16" width="8" height="33" rx="2" fill="#fff"/><rect x="9" y="52" width="46" height="2.5" rx="1.2" fill="#5fc49d" opacity=".7"/></svg>
+      <div class="wordmark"><b>Monthly Expenses</b><span>Tracker</span></div>
+    </div>
     <div class="monthnav">
       <button class="iconbtn" id="prev" aria-label="Previous month">‹</button>
       <div class="monthlabel" id="monthLabel" aria-live="polite"></div>
