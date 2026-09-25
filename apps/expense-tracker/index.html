@@ -371,7 +371,10 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <form id="setForm" novalidate>
     <div class="grab"></div>
     <h3><span id="setTitle">Settings</span><button type="button" class="x" id="closeSet" aria-label="Close">×</button></h3>
-    <label class="f">Monthly income after tax (leave empty for none)<input class="t num" id="sIncome" inputmode="decimal" placeholder="e.g. 2400"></label>
+    <div class="row2">
+      <label class="f">Monthly income after tax<input class="t num" id="sIncome" inputmode="decimal" placeholder="e.g. 2400"></label>
+      <label class="f">On-call duty extra<input class="t num" id="sOnCall" inputmode="decimal" placeholder="e.g. 210"></label>
+    </div>
     <label class="f">Monthly budget (leave empty for none)<input class="t num" id="sBudget" inputmode="decimal" placeholder="e.g. 1800"></label>
     <label class="f">Currency
       <select class="t" id="sCur">
@@ -472,6 +475,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 
   // one-time recurring presets requested by the owner: fixed monthly costs starting October 2026, paid on the 1st.
   // Skipped if a matching entry (same category and name) already exists.
+  // one-time settings preset requested by the owner: net income 1948, on-call duty 210 in months it happens
+  if (!(window.claude && window.claude.use) && !lsGet('ledger.preset.income1948', false)) {
+    settings = {...settings, income: 1948, onCall: 210, mt: Date.now()};
+    lsSet('ledger.settings', settings); lsSet('ledger.preset.income1948', true);
+  }
+
   const RULE_PRESETS = [
     {key:'ruleRent271',  id:'rp-rent',        cat:'housing', note:'Rent (warm)',    amt:271},
     {key:'ruleElec36',   id:'rp-electricity', cat:'bills',   note:'Electricity',    amt:36},
@@ -638,10 +647,14 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     {key:'wants', label:'Wants', cats:['eating','shopping','transport'], cap:30},
     {key:'family', label:null, cats:['other'], cap:0},
   ];
+  const extraFor = ym => Number((settings.extra || {})[ym]) || 0;
+  const incomeFor = ym => (Number(settings.income) || 0) + extraFor(ym);
   function renderIncome(items, total){
-    const inc = Number(settings.income) || 0;
-    $('incomeEdit').textContent = inc ? 'Edit' : 'Set income';
-    if (!inc) { $('incomeBody').innerHTML = '<p class="empty">Add your monthly income after tax to see how much you save each month.</p>'; return; }
+    const base = Number(settings.income) || 0;
+    $('incomeEdit').textContent = base ? 'Edit' : 'Set income';
+    if (!base) { $('incomeBody').innerHTML = '<p class="empty">Add your monthly income after tax to see how much you save each month.</p>'; return; }
+    const extra = extraFor(viewYm), onCall = Number(settings.onCall) || 0;
+    const inc = base + extra;
     const left = inc - total, rate = left / inc * 100;
     const byCat = {}; items.forEach(i => byCat[i.cat] = (byCat[i.cat]||0) + i.amt);
     const soFar = viewYm === thisYm;
@@ -660,7 +673,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       '<span class="val num">'+fmt(left)+'<em>'+rate.toFixed(0)+'%</em></span>'+
       '<span class="track"><i style="width:'+Math.max(0, Math.min(rate,100))+'%"></i></span></li>');
     $('incomeBody').innerHTML =
-      '<div class="budgetline num"><span>Income after tax</span><b>'+fmt(inc)+'</b></div>'+
+      '<div class="budgetline num"><span>Income after tax</span><b>'+fmt(base)+'</b></div>'+
+      (onCall ? '<div class="budgetline num"><label class="toggle"><input type="checkbox" id="onCallToggle"'+(extra ? ' checked' : '')+'> On-call duty this month</label><b>'+(extra ? '+ '+fmt(extra) : fmt(onCall))+'</b></div>' : '')+
+      (extra ? '<div class="budgetline num"><span>Total income this month</span><b>'+fmt(inc)+'</b></div>' : '')+
       '<ul class="split">'+rows.join('')+'</ul>'+
       '<p class="hint">Rule of thumb: needs up to 50% of income, wants up to 30%, save at least 20%.'+(soFar ? ' This month is still running.' : '')+'</p>';
   }
@@ -680,7 +695,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const incM = Number(settings.income) || 0;
     $('yIncomePanel').hidden = !incM;
     if (incM) {
-      const earned = incM * withData, saved = earned - total;
+      const earned = yms.filter(ym => (M[ym]||[]).length).reduce((a, ym) => a + incomeFor(ym), 0), saved = earned - total;
       $('yIncome').innerHTML = [
         ['Income ('+withData+' mo)', withData ? fmt(earned, 0) : '—'],
         ['Saved', withData ? fmt(saved, 0) : '—'],
@@ -1005,6 +1020,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   function openSettings(focusLimits){
     $('sBudget').value = settings.budget ? settings.budget : '';
     $('sIncome').value = settings.income ? settings.income : '';
+    $('sOnCall').value = settings.onCall ? settings.onCall : '';
     $('sCur').value = settings.currency || 'EUR';
     showLastBackup(); $('bkConfirm').hidden = true; pending = null;
     const lim = catLimits();
@@ -1021,11 +1037,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const raw = $('sBudget').value.trim();
     const b = raw ? parseAmt(raw) : 0;
     const rawI = $('sIncome').value.trim(), inc = rawI ? parseAmt(rawI) : 0;
+    const rawO = $('sOnCall').value.trim(), onc = rawO ? parseAmt(rawO) : 0;
     const cb = {};
     CATS.forEach(c => { const v = parseAmt($('cb_'+c.id).value || ''); if (v > 0) cb[c.id] = v; });
     const cn = {};
     CATS.forEach(c => { const v = $('cn_'+c.id).value.trim().slice(0,24); if (v && v !== c.def) cn[c.id] = v; });
-    settings = {...settings, budget: b > 0 ? b : 0, income: inc > 0 ? inc : 0, currency: $('sCur').value, catBudgets: cb, catNames: cn};
+    settings = {...settings, budget: b > 0 ? b : 0, income: inc > 0 ? inc : 0, onCall: onc > 0 ? onc : 0, currency: $('sCur').value, catBudgets: cb, catNames: cn};
     closeAll(); render(); saveSettings(); toast('Settings saved');
   });
 
@@ -1235,6 +1252,14 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
   $('settingsBtn').addEventListener('click', () => openSettings());
   $('budgetEdit').addEventListener('click', () => openSettings());
+  $('incomeBody').addEventListener('change', e => {
+    if (e.target.id !== 'onCallToggle') return;
+    const ex = {...(settings.extra || {})};
+    if (e.target.checked) ex[viewYm] = Number(settings.onCall) || 0; else delete ex[viewYm];
+    settings = {...settings, extra: ex, mt: Date.now()};
+    render(); saveSettings();
+    toast(e.target.checked ? 'On-call pay added to ' + monthName(viewYm) : 'On-call pay removed');
+  });
   $('incomeEdit').addEventListener('click', () => { openSettings(); setTimeout(() => $('sIncome').focus(), 80); });
   $('catLimits').addEventListener('click', () => openSettings(true));
   $('prev').addEventListener('click', () => { viewYm = shiftYm(viewYm, view === 'year' ? -12 : -1); render(); });
