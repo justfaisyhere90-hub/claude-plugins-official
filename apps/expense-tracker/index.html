@@ -424,6 +424,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   const LIMIT_PRESETS = [
     {key:'otherLimit375',     cat:'other',     value:375, replace:false},
     {key:'groceriesLimit350', cat:'groceries', value:350, replace:true},
+    {key:'eatingLimit50',     cat:'eating',    value:50,  replace:true},
   ];
   if (!(window.claude && window.claude.use)) {
     LIMIT_PRESETS.forEach(pr => {
