@@ -13,6 +13,7 @@ A phone-friendly expense tracker in one HTML file.
 
 - Log expenses by category, with a note and date
 - Monthly total, budget meter, category breakdown and 6-month trend
+- Per-category limits with warnings at 85% and when a category goes over
 - Recurring entries (rent, phone contract) logged automatically each month
 - Backup download (.json), spreadsheet export (.csv) and restore
 

@@ -175,6 +175,16 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .toggle{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;cursor:pointer}
 .toggle input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 .hint{font-size:13px;color:var(--muted);margin:0}
+/* category budgets */
+.cat .limit{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin-top:-1px}
+.cat .track.budget{position:relative}
+.alerts{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:12px;padding:10px 12px;font-size:14px}
+.alerts.crit{border-left-color:var(--crit)}
+.alerts .row{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.alerts .row b{font-weight:600}
+.cbgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cbgrid label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--ink-2);font-weight:500}
+.cbgrid label span{display:flex;align-items:center;gap:6px}
 /* backup */
 .bk{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px}
 .bk h4{margin:0;font:600 13px/1.2 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
@@ -209,6 +219,8 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 
   <div class="banner" id="sampleBanner" hidden><b>Example data.</b> These figures only show how the app works. Add your first expense and they disappear.</div>
 
+  <div class="alerts" id="alerts" hidden role="status"></div>
+
   <section class="panel" id="budgetPanel">
     <h2>Budget <button class="linkbtn" id="budgetEdit">Set budget</button></h2>
     <div id="budgetBody"></div>
@@ -225,7 +237,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   </section>
 
   <section class="panel">
-    <h2>Where it went <span class="aside" id="catAside"></span></h2>
+    <h2>Where it went <button class="linkbtn" id="catLimits">Set limits</button></h2>
     <ul class="cats" id="cats"></ul>
   </section>
 
@@ -282,6 +294,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
         <option value="AED">UAE dirham (AED)</option>
       </select>
     </label>
+    <div class="bk" id="cbSection">
+      <h4>Category limits</h4>
+      <p class="hint">Get a warning at 85% and when a category goes over. Leave empty for no limit.</p>
+      <div class="cbgrid" id="cbGrid"></div>
+    </div>
     <div class="actions"><button type="submit" class="btn primary">Save settings</button></div>
     <div class="bk">
       <h4>Backup</h4>
@@ -455,6 +472,19 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   const hasReal = () => Object.values(months).some(a => a && a.length);
   const data = () => hasReal() ? months : sampleMonths();
 
+  // ---------- category limits ----------
+  function catLimits(){
+    const o = {}, src = settings.catBudgets || {};
+    CATS.forEach(c => { const v = Number(src[c.id]); if (v > 0) o[c.id] = v; });
+    return o;
+  }
+  function catStatus(v, b){
+    const pct = v / b * 100;
+    if (pct > 100) return {key:'crit', label:'⚠ Over by ' + fmt(v - b)};
+    if (pct >= 85) return {key:'warn', label:'● ' + Math.floor(pct) + '% used'};
+    return {key:'good', label:''};
+  }
+
   // ---------- render ----------
   function render(){
     const M = data();
@@ -524,15 +554,32 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       ['Largest', biggest ? fmt(biggest.amt, biggest.amt >= 1000 ? 0 : 2) : '—'],
     ].map(s => '<div class="stat"><span class="k">'+s[0]+'</span><span class="v num" title="'+esc(s[1])+'">'+esc(s[1])+'</span></div>').join('');
 
-    // categories
-    $('catAside').textContent = ranked.length ? ranked.length + ' of ' + CATS.length + ' categories' : '';
-    const max = ranked[0] ? ranked[0].v : 1;
-    $('cats').innerHTML = ranked.length ? ranked.map(c =>
-      '<li class="cat" title="'+esc(c.name)+': '+fmt(c.v)+'">'+
+    // categories (with limits)
+    const lim = catLimits();
+    const shown = CATS.map(c => ({...c, v: byCat[c.id]||0, b: lim[c.id]||0}))
+      .filter(c => c.v > 0 || c.b > 0)
+      .sort((a,b) => (b.v - a.v) || (b.b - a.b));
+    const max = Math.max(1, ...shown.filter(c => !c.b).map(c => c.v));
+    $('catLimits').textContent = Object.keys(lim).length ? 'Edit limits' : 'Set limits';
+    $('cats').innerHTML = shown.length ? shown.map(c => {
+      const st = c.b ? catStatus(c.v, c.b) : null;
+      const w = c.b ? Math.min(c.v / c.b * 100, 100) : c.v / max * 100;
+      return '<li class="cat" title="'+esc(c.name)+': '+fmt(c.v)+(c.b ? ' of '+fmt(c.b) : '')+'">'+
         '<span class="name"><span class="dot" style="background:var('+c.c+')"></span>'+esc(c.name)+'</span>'+
-        '<span class="amt num">'+fmt(c.v)+'<span class="pct">'+(c.v/total*100).toFixed(0)+'%</span></span>'+
-        '<span class="track"><i style="width:'+(c.v/max*100)+'%;background:var('+c.c+')"></i></span>'+
-      '</li>').join('') : '<li class="empty">Nothing spent this month yet.</li>';
+        '<span class="amt num">'+fmt(c.v)+(total ? '<span class="pct">'+(c.v/total*100).toFixed(0)+'%</span>' : '')+'</span>'+
+        '<span class="track'+(c.b ? ' budget' : '')+'"><i style="width:'+w+'%;background:var('+c.c+')"></i></span>'+
+        (c.b ? '<span class="limit num"><span>'+(st.key === 'crit' ? fmt(c.v)+' of '+fmt(c.b) : fmt(c.b - c.v)+' left of '+fmt(c.b))+'</span>'+
+          (st.key !== 'good' ? '<span class="pill '+st.key+'">'+st.label+'</span>' : '')+'</span>' : '')+
+      '</li>';
+    }).join('') : '<li class="empty">Nothing spent this month yet.</li>';
+
+    // warning strip
+    const warn = shown.filter(c => c.b && catStatus(c.v, c.b).key !== 'good').sort((a,b) => b.v/b.b - a.v/a.b);
+    const al = $('alerts');
+    al.hidden = !warn.length;
+    al.classList.toggle('crit', warn.some(c => c.v > c.b));
+    al.innerHTML = warn.map(c => { const st = catStatus(c.v, c.b);
+      return '<div class="row"><span><span class="dot" style="background:var('+c.c+');display:inline-block;margin-right:6px"></span><b>'+esc(c.name)+'</b></span><span class="pill '+st.key+' num">'+st.label+'</span></div>'; }).join('');
 
     // trend
     const trendYms = []; const end = viewYm > shiftYm(thisYm,-5) ? thisYm : shiftYm(viewYm,5);
@@ -646,6 +693,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     render();
     touched.forEach(saveMonth);
     if (newRule) saveRules();
+    const lb = catLimits()[cat];
+    if (lb && ym === thisYm) {
+      const spent = (months[ym]||[]).filter(i => i.cat === cat).reduce((s,i) => s + i.amt, 0);
+      const st = catStatus(spent, lb);
+      if (st.key !== 'good') { toast(catById[cat].name + ': ' + (st.key === 'crit' ? 'over limit by ' + fmt(spent - lb) : Math.floor(spent/lb*100) + '% of ' + fmt(lb) + ' limit used')); return; }
+    }
     toast(wasEdit ? 'Expense updated' : newRule ? 'Added · repeats on the ' + ordinal(newRule.day) + ' of every month' : 'Added ' + fmt(amt) + ' · ' + catById[cat].name);
   });
 
@@ -672,18 +725,24 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   });
 
   // settings
-  function openSettings(){
+  function openSettings(focusLimits){
     $('sBudget').value = settings.budget ? settings.budget : '';
     $('sCur').value = settings.currency || 'EUR';
     showLastBackup(); $('bkConfirm').hidden = true; pending = null;
+    const lim = catLimits();
+    $('cbGrid').innerHTML = CATS.map(c => '<label for="cb_'+c.id+'"><span><span class="dot" style="background:var('+c.c+')"></span>'+c.name+'</span>'+
+      '<input class="t num" id="cb_'+c.id+'" inputmode="decimal" placeholder="No limit" value="'+(lim[c.id] || '')+'"></label>').join('');
     $('scrim').hidden = false; $('settings').hidden = false;
-    setTimeout(() => $('sBudget').focus(), 50);
+    if (focusLimits) setTimeout(() => { $('cbSection').scrollIntoView({block:'start'}); const f = $('cb_' + (focusLimits === true ? CATS[1].id : focusLimits)); f && f.focus({preventScroll:true}); }, 60);
+    else setTimeout(() => $('sBudget').focus(), 50);
   }
   $('setForm').addEventListener('submit', e => {
     e.preventDefault();
     const raw = $('sBudget').value.trim();
     const b = raw ? parseAmt(raw) : 0;
-    settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value};
+    const cb = {};
+    CATS.forEach(c => { const v = parseAmt($('cb_'+c.id).value || ''); if (v > 0) cb[c.id] = v; });
+    settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value, catBudgets: cb};
     closeAll(); render(); saveSettings(); toast('Settings saved');
   });
 
@@ -758,6 +817,10 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const s = pending.settings;
     let setChanged = false;
     if (s && !settings.budget && Number(s.budget) > 0) { settings = {...settings, budget:Number(s.budget)}; setChanged = true; }
+    if (s && s.catBudgets && typeof s.catBudgets === 'object' && !Object.keys(catLimits()).length) {
+      const cb = {}; CATS.forEach(c => { const v = Number(s.catBudgets[c.id]); if (v > 0) cb[c.id] = v; });
+      if (Object.keys(cb).length) { settings = {...settings, catBudgets: cb}; setChanged = true; }
+    }
     const n = pending.add.length;
     pending = null; $('bkConfirm').hidden = true;
     closeAll(); render();
@@ -771,8 +834,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   $('closeSet').addEventListener('click', closeAll);
   $('scrim').addEventListener('click', closeAll);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
-  $('settingsBtn').addEventListener('click', openSettings);
-  $('budgetEdit').addEventListener('click', openSettings);
+  $('settingsBtn').addEventListener('click', () => openSettings());
+  $('budgetEdit').addEventListener('click', () => openSettings());
+  $('catLimits').addEventListener('click', () => openSettings(true));
   $('prev').addEventListener('click', () => { viewYm = shiftYm(viewYm,-1); render(); });
   $('next').addEventListener('click', () => { if (viewYm < thisYm) { viewYm = shiftYm(viewYm,1); render(); } });
   $('list').addEventListener('click', e => {
