@@ -503,6 +503,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     settings = {...settings, income: 1948, onCall: 210, mt: Date.now()};
     lsSet('ledger.settings', settings); lsSet('ledger.preset.income1948', true);
   }
+  // one-time preset: emergency buffer target 3000, nothing saved yet (replaces any earlier goal)
+  if (!(window.claude && window.claude.use) && !lsGet('ledger.preset.goal3000', false)) {
+    settings = {...settings, goal: {name: 'Emergency buffer', target: 3000, moves: []}, mt: Date.now()};
+    lsSet('ledger.settings', settings); lsSet('ledger.preset.goal3000', true);
+  }
 
   const RULE_PRESETS = [
     {key:'ruleRent271',  id:'rp-rent',        cat:'housing', note:'Rent (warm)',    amt:271},
