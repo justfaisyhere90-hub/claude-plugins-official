@@ -209,6 +209,25 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .mrow small{color:var(--muted);font-size:12.5px;margin-left:6px}
 .mrow .amt{font-weight:600}
 .mrow.empty-m{color:var(--muted)}
+/* scan + income */
+.scanrow{display:flex;gap:10px;align-items:center}
+.btn.scan{flex:none;padding:10px 14px;display:flex;align-items:center;gap:8px;font-weight:600}
+.btn.scan svg{width:18px;height:18px}
+.scanstat{font-size:13px;color:var(--ink-2);margin:0}
+.scanstat.bad{color:var(--crit)}
+#incomeBody{display:flex;flex-direction:column;gap:12px}
+.split{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none}
+.split li{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:baseline}
+.split .lbl{font-weight:500}
+.split .lbl{min-width:0}
+.split .lbl small{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:1px}
+.split .lbl .pill{margin-top:4px}
+.split .val{white-space:nowrap;font-weight:600}
+.split .val em{font-style:normal;font-weight:400;color:var(--muted);margin-left:4px}
+.split .track{grid-column:1/-1;height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.split .track i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--ink-2);min-width:2px}
+.split li.saved .track i{background:var(--good)}
+.split li.neg .track i{background:var(--crit)}
 /* backup reminder */
 .remind{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px;font-size:14px}
 .remind .actions .btn{padding:10px}
@@ -258,6 +277,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <div class="actions"><button type="button" class="btn" id="remindLater">Later</button><button type="button" class="btn primary" id="remindNow">Back up now</button></div>
   </div>
 
+  <section class="panel yview" hidden id="yIncomePanel">
+    <h2>Income &amp; savings this year</h2>
+    <div class="stats" id="yIncome"></div>
+  </section>
+
   <section class="panel yview" hidden>
     <h2>Year in numbers</h2>
     <div class="stats" id="yStats"></div>
@@ -273,6 +297,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <section class="panel yview" hidden>
     <h2>Where it went this year</h2>
     <ul class="cats" id="ycats"></ul>
+  </section>
+
+  <section class="panel mview" id="incomePanel">
+    <h2>Income &amp; savings <button class="linkbtn" id="incomeEdit">Set income</button></h2>
+    <div id="incomeBody"></div>
   </section>
 
   <section class="panel mview" id="budgetPanel">
@@ -317,6 +346,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <div class="grab"></div>
     <h3><span id="sheetTitle">Add expense</span><button type="button" class="x" id="closeSheet" aria-label="Close">×</button></h3>
     <div class="amountbox"><span class="cur" id="curSym">€</span><input id="fAmount" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Amount"></div>
+    <div class="scanrow" id="scanRow">
+      <button type="button" class="btn scan" id="scanBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>Scan receipt</button>
+      <p class="scanstat" id="scanStatus">Take a photo and the amount is filled in.</p>
+      <input type="file" id="scanFile" accept="image/*" hidden>
+    </div>
     <fieldset class="chips" id="fCats"><legend>Category</legend></fieldset>
     <div class="row2">
       <label class="f" id="fDateRow">Date<input class="t" type="date" id="fDate"></label>
@@ -337,6 +371,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <form id="setForm" novalidate>
     <div class="grab"></div>
     <h3><span id="setTitle">Settings</span><button type="button" class="x" id="closeSet" aria-label="Close">×</button></h3>
+    <label class="f">Monthly income after tax (leave empty for none)<input class="t num" id="sIncome" inputmode="decimal" placeholder="e.g. 2400"></label>
     <label class="f">Monthly budget (leave empty for none)<input class="t num" id="sBudget" inputmode="decimal" placeholder="e.g. 1800"></label>
     <label class="f">Currency
       <select class="t" id="sCur">
@@ -592,9 +627,42 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     document.querySelectorAll('.mview').forEach(el => el.hidden = y);
     document.querySelectorAll('.yview').forEach(el => el.hidden = !y);
     $('vMonth').setAttribute('aria-pressed', String(!y)); $('vYear').setAttribute('aria-pressed', String(y));
-    if (y) { $('alerts').hidden = true; renderYear(); }
+    if (y) { $('alerts').hidden = true; renderYear(); } else { $('yIncomePanel').hidden = true; }
     $('prev').setAttribute('aria-label', y ? 'Previous year' : 'Previous month');
     $('next').setAttribute('aria-label', y ? 'Next year' : 'Next month');
+  }
+
+  // needs / wants split (the 50/30/20 rule of thumb); "Sending money home" is shown on its own
+  const GROUPS = [
+    {key:'needs', label:'Needs', cats:['housing','groceries','bills','health'], cap:50},
+    {key:'wants', label:'Wants', cats:['eating','shopping','transport'], cap:30},
+    {key:'family', label:null, cats:['other'], cap:0},
+  ];
+  function renderIncome(items, total){
+    const inc = Number(settings.income) || 0;
+    $('incomeEdit').textContent = inc ? 'Edit' : 'Set income';
+    if (!inc) { $('incomeBody').innerHTML = '<p class="empty">Add your monthly income after tax to see how much you save each month.</p>'; return; }
+    const left = inc - total, rate = left / inc * 100;
+    const byCat = {}; items.forEach(i => byCat[i.cat] = (byCat[i.cat]||0) + i.amt);
+    const soFar = viewYm === thisYm;
+    const rows = GROUPS.map(g => {
+      const v = g.cats.reduce((s,c) => s + (byCat[c]||0), 0);
+      const names = g.cats.map(c => catById[c].name).join(', ');
+      const pct = v / inc * 100;
+      const pill = g.cap && pct > g.cap ? '<br><span class="pill warn">● above '+g.cap+'% of income</span>' : '';
+      return '<li><span class="lbl">'+esc(g.label || catById[g.cats[0]].name)+(g.label ? '<small>'+esc(names)+'</small>' : '')+pill+'</span>'+
+        '<span class="val num">'+fmt(v)+'<em>'+pct.toFixed(0)+'%</em></span>'+
+        '<span class="track"><i style="width:'+Math.min(pct,100)+'%"></i></span></li>';
+    });
+    const savedPill = left < 0 ? '<br><span class="pill crit">⚠ Spent '+fmt(-left)+' more than you earned</span>'
+      : rate < 20 && !soFar ? '<br><span class="pill warn">● Below the 20% goal</span>' : rate >= 20 ? '<br><span class="pill good">✓ On track</span>' : '';
+    rows.push('<li class="'+(left < 0 ? 'neg' : 'saved')+'"><span class="lbl">'+(soFar ? 'Left so far' : 'Saved')+savedPill+'</span>'+
+      '<span class="val num">'+fmt(left)+'<em>'+rate.toFixed(0)+'%</em></span>'+
+      '<span class="track"><i style="width:'+Math.max(0, Math.min(rate,100))+'%"></i></span></li>');
+    $('incomeBody').innerHTML =
+      '<div class="budgetline num"><span>Income after tax</span><b>'+fmt(inc)+'</b></div>'+
+      '<ul class="split">'+rows.join('')+'</ul>'+
+      '<p class="hint">Rule of thumb: needs up to 50% of income, wants up to 30%, save at least 20%.'+(soFar ? ' This month is still running.' : '')+'</p>';
   }
 
   function renderYear(){
@@ -608,6 +676,17 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const total = totals.reduce((a,b) => a + b, 0);
     const withData = yms.filter(ym => (M[ym]||[]).length).length;
     const prevTotal = Array.from({length:lastM}, (_,i) => sumOf(prevY + '-' + pad(i+1))).reduce((a,b) => a + b, 0);
+
+    const incM = Number(settings.income) || 0;
+    $('yIncomePanel').hidden = !incM;
+    if (incM) {
+      const earned = incM * withData, saved = earned - total;
+      $('yIncome').innerHTML = [
+        ['Income ('+withData+' mo)', withData ? fmt(earned, 0) : '—'],
+        ['Saved', withData ? fmt(saved, 0) : '—'],
+        ['Savings rate', withData ? (saved / earned * 100).toFixed(0) + '%' : '—'],
+      ].map(x => '<div class="stat"><span class="k">'+x[0]+'</span><span class="v num">'+x[1]+'</span></div>').join('');
+    }
 
     $('monthLabel').textContent = yr;
     $('next').disabled = yr >= thisY;
@@ -686,6 +765,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       sub.push('<span class="delta '+cls+'">'+(d>0?'▲ ':'▼ ')+Math.abs(d).toFixed(0)+'% vs '+monthName(shiftYm(viewYm,-1),'short')+'</span>');
     }
     $('heroSub').innerHTML = sub.map(s => '<span>'+s+'</span>').join('');
+
+    // income & savings
+    renderIncome(items, total);
 
     // budget
     const b = Number(settings.budget) || 0;
@@ -836,6 +918,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const r = $('cat_'+cat) || $('cat_groceries'); r.checked = true;
     $('fDateRow').hidden = !!rule; $('fDayRow').hidden = !rule; $('fDay').value = rule ? rule.day : '';
     $('fRepeatRow').hidden = !!(rule || item); $('fRepeat').checked = !!preset;
+    $('scanRow').hidden = !!rule; setScan('Take a photo and the amount is filled in.');
     const hint = rule ? 'Changes apply from the next time it is logged. Entries already in your history stay as they are.'
       : item && item.rid ? 'This changes only this month\'s entry. To change every month, edit it under Recurring.'
       : preset ? 'Set the date to the day it is paid. This month\'s payment is logged now, then again every month on that day.' : '';
@@ -921,6 +1004,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   // settings
   function openSettings(focusLimits){
     $('sBudget').value = settings.budget ? settings.budget : '';
+    $('sIncome').value = settings.income ? settings.income : '';
     $('sCur').value = settings.currency || 'EUR';
     showLastBackup(); $('bkConfirm').hidden = true; pending = null;
     const lim = catLimits();
@@ -936,11 +1020,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     e.preventDefault();
     const raw = $('sBudget').value.trim();
     const b = raw ? parseAmt(raw) : 0;
+    const rawI = $('sIncome').value.trim(), inc = rawI ? parseAmt(rawI) : 0;
     const cb = {};
     CATS.forEach(c => { const v = parseAmt($('cb_'+c.id).value || ''); if (v > 0) cb[c.id] = v; });
     const cn = {};
     CATS.forEach(c => { const v = $('cn_'+c.id).value.trim().slice(0,24); if (v && v !== c.def) cn[c.id] = v; });
-    settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value, catBudgets: cb, catNames: cn};
+    settings = {...settings, budget: b > 0 ? b : 0, income: inc > 0 ? inc : 0, currency: $('sCur').value, catBudgets: cb, catNames: cn};
     closeAll(); render(); saveSettings(); toast('Settings saved');
   });
 
@@ -1033,6 +1118,115 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   $('remindNow').addEventListener('click', () => $('bkJson').click());
   $('remindLater').addEventListener('click', () => { lsSet('ledger.backupSnooze', Date.now() + 3*86400000); render(); toast('I will remind you in 3 days'); });
 
+  // ---------- receipt scanning (on-device text recognition with Tesseract) ----------
+  const TESS = 'https://cdn.jsdelivr.net/npm/';
+  let tessLoad = null, tessWorker = null, tessProgress = null;
+  function setScan(msg, bad){ const el = $('scanStatus'); el.textContent = msg; el.classList.toggle('bad', !!bad); }
+  function loadTesseract(){
+    if (window.Tesseract) return Promise.resolve();
+    if (!tessLoad) tessLoad = new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = TESS + 'tesseract.js@5.1.1/dist/tesseract.min.js';
+      sc.onload = res; sc.onerror = () => { tessLoad = null; rej(new Error('load')); };
+      document.head.appendChild(sc);
+    });
+    return tessLoad;
+  }
+  async function getWorker(){
+    await loadTesseract();
+    if (!tessWorker) tessWorker = await window.Tesseract.createWorker('deu', 1, {
+      workerPath: TESS + 'tesseract.js@5.1.1/dist/worker.min.js',
+      corePath: TESS + 'tesseract.js-core@5.1.1',
+      langPath: TESS + '@tesseract.js-data/deu@1.0.0/4.0.0_best_int',
+      logger: m => tessProgress && tessProgress(m),
+    });
+    return tessWorker;
+  }
+  function loadImage(file){
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('image')); };
+      img.src = url;
+    });
+  }
+  // downscale large phone photos (faster); Tesseract does its own clean-up of the image
+  function prepCanvas(img){
+    const k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    cv.getContext('2d').drawImage(img, 0, 0, w, h);
+    return cv;
+  }
+  const STORES = [
+    [/\brewe\b/i, 'REWE', 'groceries'], [/\blidl\b/i, 'Lidl', 'groceries'], [/\baldi\b/i, 'Aldi', 'groceries'],
+    [/\bedeka\b/i, 'Edeka', 'groceries'], [/\bnetto\b(?!\s*betrag)/i, 'Netto', 'groceries'], [/\bpenny\b/i, 'Penny', 'groceries'],
+    [/\bkaufland\b/i, 'Kaufland', 'groceries'], [/\bnorma\b/i, 'Norma', 'groceries'], [/\bglobus\b/i, 'Globus', 'groceries'],
+    [/\bdm[\s-]*drogerie|\bdm\s*markt/i, 'dm', 'shopping'], [/\brossmann\b/i, 'Rossmann', 'shopping'],
+    [/apotheke/i, 'Apotheke', 'health'],
+    [/\bikea\b/i, 'IKEA', 'shopping'], [/\bprimark\b/i, 'Primark', 'shopping'], [/\bh\s*&\s*m\b/i, 'H&M', 'shopping'],
+    [/tk\s*maxx/i, 'TK Maxx', 'shopping'], [/\bsaturn\b/i, 'Saturn', 'shopping'], [/media\s*markt/i, 'MediaMarkt', 'shopping'],
+    [/mc\s*donald/i, "McDonald's", 'eating'], [/burger\s*king/i, 'Burger King', 'eating'], [/starbucks/i, 'Starbucks', 'eating'],
+    [/deutsche\s*bahn|\bdb\s*fernverkehr/i, 'Deutsche Bahn', 'transport'], [/lufthansa|eurowings|ryanair|easyjet|condor/i, null, 'transport'],
+    [/\bhotel\b/i, null, 'transport'],
+    [/restaurant|ristorante|pizzeria|trattoria|imbiss|d[öo]ner|kebab|sushi|\bcaf[eé]\b|b[äa]ckerei|baeckerei|\bbistro\b/i, null, 'eating'],
+  ];
+  const AMT = /(\d{1,3}(?:[.\s]\d{3})*|\d+)\s?[,.]\s?(\d{2})(?!\d)/g;
+  const toNum = (a, b) => Number(a.replace(/[.\s]/g, '') + '.' + b);
+  function parseReceipt(text){
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    // dates (19.09.2026) and times (07:55) look like amounts, so blank them out first
+    const clean = l => l.replace(/\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4}/g, ' ').replace(/\d{1,2}:\d{2}(:\d{2})?/g, ' ');
+    const amountsIn = l => [...clean(l).matchAll(AMT)].map(m => toNum(m[1], m[2])).filter(v => v > 0 && v < 10000);
+    const skip = /zwischen|mwst|m\.?w\.?st|\bust\b|steuer|netto|brutto|r(?:ü|ue|u)ckgeld|gegeben|pfand|rabatt|spart|sparen|trinkgeld/i;
+    let amount = null;
+    for (const re of [/zu\s*zahlen|\bsumme\b|gesamt|endbetrag|\btotal\b|betrag/i, /\bbar\b|\bec\b|girocard|karte|visa|master\s*card|kartenzahlung|apple\s*pay/i]) {
+      for (const l of lines) { if (re.test(l) && !skip.test(l)) { const a = amountsIn(l); if (a.length) { amount = a[a.length - 1]; break; } } }
+      if (amount) break;
+    }
+    if (!amount) { const all = lines.filter(l => !skip.test(l)).flatMap(amountsIn); if (all.length) amount = Math.max(...all); }
+    let date = null;
+    for (const m of text.matchAll(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4}|\d{2})(?!\d)/g)) {
+      let [, d, mo, y] = m; y = y.length === 2 ? '20' + y : y;
+      const dt = new Date(Number(y), Number(mo) - 1, Number(d));
+      const age = (Date.now() - dt) / 86400000;
+      if (dt.getDate() === Number(d) && dt.getMonth() === Number(mo) - 1 && age > -1 && age < 400) { date = y + '-' + pad(mo) + '-' + pad(d); break; }
+    }
+    let store = null, cat = null;
+    for (const [re, name, c] of STORES) { const m = text.match(re); if (m) { store = name; cat = c; break; } }
+    if (!store) {
+      const first = lines.find(l => (l.match(/[A-Za-zÄÖÜäöüß]/g) || []).length >= 3 && !/\d{3,}/.test(l));
+      if (first) store = first.replace(/[^\wÄÖÜäöüß&' .-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+    }
+    return {amount, date, store, cat};
+  }
+  $('scanBtn').addEventListener('click', () => { $('scanFile').value = ''; $('scanFile').click(); });
+  $('scanFile').addEventListener('change', async () => {
+    const f = $('scanFile').files[0]; if (!f) return;
+    const btn = $('scanBtn'); btn.disabled = true;
+    try {
+      setScan(window.Tesseract ? 'Reading receipt…' : 'Preparing the scanner (first time takes a few seconds)…');
+      let img;
+      try { img = await loadImage(f); } catch(e) { setScan('That photo could not be opened. Try again.', true); return; }
+      let w;
+      try { w = await getWorker(); }
+      catch(e) { setScan('Scanning is not available here. Tip: tap the amount field and use Scan Text on the keyboard.', true); return; }
+      tessProgress = m => { if (m.status === 'recognizing text') setScan('Reading receipt… ' + Math.round(m.progress * 100) + '%'); };
+      const { data } = await w.recognize(prepCanvas(img));
+      tessProgress = null;
+      const r = parseReceipt(data.text || '');
+      if (!r.amount) { setScan('Could not find the total. Please type the amount.', true); return; }
+      $('fAmount').value = settings.currency === 'EUR' ? r.amount.toFixed(2).replace('.', ',') : r.amount.toFixed(2);
+      if (r.store && !$('fNote').value.trim()) $('fNote').value = r.store;
+      if (r.date) $('fDate').value = r.date;
+      if (r.cat && $('cat_' + r.cat)) $('cat_' + r.cat).checked = true;
+      const when = r.date ? ' · ' + new Date(r.date + 'T12:00:00').toLocaleDateString(undefined, {day:'numeric', month:'short'}) : '';
+      setScan('Found ' + fmt(r.amount) + (r.store ? ' · ' + r.store : '') + when + '. Check it, then tap Save.');
+    } catch(e) {
+      setScan('Something went wrong reading the photo. Please type the amount.', true);
+    } finally { btn.disabled = false; tessProgress = null; }
+  });
+
   // ---------- events ----------
   $('addBtn').addEventListener('click', () => openSheet(null));
   $('closeSheet').addEventListener('click', closeAll);
@@ -1041,6 +1235,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
   $('settingsBtn').addEventListener('click', () => openSettings());
   $('budgetEdit').addEventListener('click', () => openSettings());
+  $('incomeEdit').addEventListener('click', () => { openSettings(); setTimeout(() => $('sIncome').focus(), 80); });
   $('catLimits').addEventListener('click', () => openSettings(true));
   $('prev').addEventListener('click', () => { viewYm = shiftYm(viewYm, view === 'year' ? -12 : -1); render(); });
   $('next').addEventListener('click', () => {
