@@ -994,7 +994,7 @@ details.how[open] summary{margin-bottom:8px}
 
     // quick Apple Pay import (only in this-device app, and only for the current month)
     const apLast = lsGet('ledger.walletLast', 0);
-    $('apRow').hidden = mode === 'db' || viewYm !== thisYm;
+    $('apRow').hidden = mode === 'db' || viewYm !== thisYm || !apLast;   // shown once the Apple Pay import has been used
     if (!$('apRow').hidden) {
       const days = apLast ? Math.floor((Date.now() - apLast) / 86400000) : null;
       $('apLast').innerHTML = days === null ? '<small style="color:var(--muted)">Add your Apple Pay payments</small>'
