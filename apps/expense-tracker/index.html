@@ -36,6 +36,7 @@
   --shadow:0 10px 30px rgba(0,0,0,.5);
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);padding-inline:16px;padding-block:0 110px;-webkit-tap-highlight-color:transparent}
 .wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
 button,input,select{font:inherit;color:inherit}
@@ -147,6 +148,20 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .err{color:var(--crit);font-size:13px;min-height:1em;margin:0}
 .x{border:0;background:var(--surface-2);width:34px;height:34px;border-radius:50%;font-size:18px}
 .toast{position:fixed;left:50%;bottom:calc(88px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;z-index:20;white-space:nowrap;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis}
+/* recurring */
+#recBody{display:flex;flex-direction:column;gap:12px}
+.recs{display:flex;flex-direction:column;gap:2px}
+.recrow{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:10px 2px;border:0;background:none;text-align:left;width:100%;border-radius:10px}
+.recrow:hover{background:var(--surface-2)}
+.recrow b{display:block;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recrow small{color:var(--muted);font-size:12.5px}
+.recrow .amt{font-weight:600}
+.recsum{display:flex;justify-content:space-between;font-size:13.5px;color:var(--ink-2);border-top:1px dashed var(--line);padding-top:10px}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+.preset{border:1px dashed var(--accent);color:var(--accent);background:none;border-radius:999px;padding:7px 12px;font-size:14px;font-weight:600}
+.toggle{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;cursor:pointer}
+.toggle input{width:20px;height:20px;accent-color:var(--accent);margin:0}
+.hint{font-size:13px;color:var(--muted);margin:0}
 .foot{font-size:12px;color:var(--muted);text-align:center}
 @media (max-width:420px){.brand{display:none}.top{justify-content:space-between}}
 @media (max-width:380px){.stats{grid-template-columns:1fr 1fr}}
@@ -175,6 +190,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <section class="panel" id="budgetPanel">
     <h2>Budget <button class="linkbtn" id="budgetEdit">Set budget</button></h2>
     <div id="budgetBody"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Recurring <span class="aside">logged each month</span></h2>
+    <div id="recBody"></div>
   </section>
 
   <section class="panel">
@@ -211,9 +231,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <div class="amountbox"><span class="cur" id="curSym">€</span><input id="fAmount" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Amount"></div>
     <fieldset class="chips" id="fCats"><legend>Category</legend></fieldset>
     <div class="row2">
-      <label class="f">Date<input class="t" type="date" id="fDate"></label>
+      <label class="f" id="fDateRow">Date<input class="t" type="date" id="fDate"></label>
+      <label class="f" id="fDayRow" hidden>Day of month<input class="t num" type="number" id="fDay" min="1" max="31" inputmode="numeric"></label>
       <label class="f">Note<input class="t" id="fNote" maxlength="60" placeholder="e.g. REWE, BVG ticket"></label>
     </div>
+    <label class="toggle" id="fRepeatRow"><input type="checkbox" id="fRepeat"> Repeat every month on this day</label>
+    <p class="hint" id="fHint" hidden></p>
     <p class="err" id="fErr"></p>
     <div class="actions">
       <button type="button" class="btn danger" id="fDelete" hidden>Delete</button>
@@ -268,13 +291,17 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   const ymOf = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   const thisYm = ymOf(today);
   let viewYm = thisYm;
-  let editing = null;              // {ym, id} when editing
+  let editing = null;              // {kind:'item', ym, id} | {kind:'rule', id}
+  let rules = [];                  // recurring: [{id,amt,cat,note,day,start,skip:[]}]
+  let rulesReady = false, monthsReady = false, applied = false;
+  const pad = n => String(n).padStart(2,'0');
 
   // ---------- storage ----------
   function lsGet(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch(e){ return d; } }
   function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
   months = lsGet('ledger.months', {});
   settings = Object.assign(settings, lsGet('ledger.settings', {}));
+  rules = lsGet('ledger.recurring', []).map(r => ({...r, skip:(r.skip||[]).slice()}));
 
   let writeChain = Promise.resolve();
   function queue(fn){ writeChain = writeChain.then(fn).catch(err => { toast(err && err.code === 'quota_exceeded' ? 'Storage is full. Delete old months to add more.' : 'Could not save. Check your connection and try again.'); }); return writeChain; }
@@ -291,17 +318,63 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     lsSet('ledger.settings', settings); return Promise.resolve();
   }
 
+  function saveRules(){
+    if (mode === 'db') return queue(() => db.doc('recurring/rules').set({rules}));
+    lsSet('ledger.recurring', rules); return Promise.resolve();
+  }
+
+  // ---------- recurring ----------
+  const occDate = (r, ym) => ym + '-' + pad(Math.min(r.day, daysIn(ym)));
+  function applyRecurring(){
+    const ids = new Set();
+    Object.values(months).forEach(a => (a||[]).forEach(i => ids.add(i.id)));
+    const touched = new Set(); let n = 0;
+    rules.forEach(r => {
+      for (let ym = r.start; ym <= thisYm; ym = shiftYm(ym,1)) {
+        const date = occDate(r, ym), id = r.id + '-' + ym;
+        if (ids.has(id) || (r.skip||[]).includes(ym)) continue;
+        if (ym === thisYm && Number(date.slice(8)) > today.getDate()) continue;
+        (months[ym] = months[ym] || []).push({id, rid:r.id, amt:r.amt, cat:r.cat, note:r.note, date, ts:Date.now()});
+        touched.add(ym); n++;
+      }
+    });
+    touched.forEach(saveMonth);
+    return n;
+  }
+  function maybeApply(){
+    if (applied) return;
+    if (mode === 'db' && !(rulesReady && monthsReady)) return;
+    applied = true;
+    const n = applyRecurring();
+    if (n) { render(); toast('Logged ' + n + ' recurring expense' + (n > 1 ? 's' : '')); }
+  }
+  const hasId = id => Object.values(months).some(a => (a||[]).some(i => i.id === id));
+  function nextDate(r){
+    let ym = r.start > thisYm ? r.start : thisYm;
+    if (ym === thisYm && (hasId(r.id + '-' + ym) || (r.skip||[]).includes(ym) || Number(occDate(r, ym).slice(8)) < today.getDate())) ym = shiftYm(ym, 1);
+    return occDate(r, ym);
+  }
+  const ordinal = d => d + (d % 10 === 1 && d !== 11 ? 'st' : d % 10 === 2 && d !== 12 ? 'nd' : d % 10 === 3 && d !== 13 ? 'rd' : 'th');
+
   async function connect(){
-    if (!window.claude || !window.claude.use) { updateStoreNote(); return; }
+    if (!window.claude || !window.claude.use) { updateStoreNote(); maybeApply(); return; }
     let d = null;
     try { d = await window.claude.use('db'); } catch(e) { d = null; }
-    if (!d) { updateStoreNote(); return; }
+    if (!d) { updateStoreNote(); maybeApply(); return; }
     db = d; mode = 'db'; updateStoreNote();
     db.collection('months').onSnapshot(snap => {
       const next = {};
       snap.docs.forEach(doc => { const v = doc.data(); if (v && Array.isArray(v.items)) next[doc.id] = v.items.slice(); });
-      months = next; render();
+      months = next;
+      if (!snap.metadata.fromCache) { monthsReady = true; maybeApply(); }
+      render();
     }, () => { mode = 'local'; updateStoreNote(); });
+    db.doc('recurring/rules').onSnapshot(s => {
+      const v = s.exists ? s.data() : null;
+      rules = v && Array.isArray(v.rules) ? v.rules.map(r => ({...r, skip:(r.skip||[]).slice()})) : [];
+      if (!s.metadata.fromCache) { rulesReady = true; maybeApply(); }
+      render();
+    }, () => {});
     db.doc('settings/main').onSnapshot(s => {
       if (s.exists) { settings = Object.assign({currency:'EUR', budget:0}, s.data()); render(); }
     }, () => {});
@@ -386,6 +459,25 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
         (pct <= 100 ? '<div class="budgetline num"><span>Left to spend</span><b>'+fmt(b-total)+'</b></div>' : '');
     }
 
+    // recurring
+    const PRESETS = '<div class="presets">'+
+      '<button class="preset" data-preset="rent">+ Rent</button>'+
+      '<button class="preset" data-preset="phone">+ Phone contract</button>'+
+      '<button class="preset" data-preset="other">+ Other</button></div>';
+    if (!rules.length) {
+      $('recBody').innerHTML = '<p class="empty">Add rent, your phone contract and other fixed bills once. They get logged automatically every month on the day you choose.</p>' + PRESETS;
+    } else {
+      const fixed = rules.reduce((s,r) => s + r.amt, 0);
+      $('recBody').innerHTML = '<div class="recs">' + rules.slice().sort((a,b) => a.day - b.day).map(r => {
+        const c = catById[r.cat] || catById.other;
+        const nd = new Date(nextDate(r) + 'T12:00:00');
+        return '<button class="recrow" data-rid="'+r.id+'"><span class="dot" style="background:var('+c.c+')"></span>'+
+          '<span><b>'+esc(r.note || c.name)+'</b><small>Every '+ordinal(r.day)+' · next '+nd.toLocaleDateString(undefined,{day:'numeric', month:'short'})+'</small></span>'+
+          '<span class="amt num">'+fmt(r.amt)+'</span></button>';
+      }).join('') + '</div>' +
+      '<div class="recsum num"><span>Fixed costs per month</span><b>'+fmt(fixed)+'</b></div>' + PRESETS;
+    }
+
     // stats
     const elapsed = viewYm === thisYm ? today.getDate() : daysIn(viewYm);
     const byCat = {};
@@ -437,7 +529,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
             const c = catById[i.cat] || catById.other;
             return '<button class="item'+(i.sample?' sample':'')+'" data-id="'+i.id+'"'+(i.sample?' disabled':'')+'>'+
               '<span class="dot" style="background:var('+c.c+')"></span>'+
-              '<span class="what"><b>'+esc(i.note || c.name)+'</b>'+(i.note ? '<small>'+esc(c.name)+'</small>' : '')+'</span>'+
+              '<span class="what"><b>'+esc(i.note || c.name)+'</b>'+((i.note || i.rid) ? '<small>'+[i.note ? esc(c.name) : '', i.rid ? '↻ Monthly' : ''].filter(Boolean).join(' · ')+'</small>' : '')+'</span>'+
               '<span class="amt num">'+fmt(i.amt)+'</span></button>';
           }).join('')+'</div>';
       }).join('');
@@ -449,18 +541,32 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   $('fCats').insertAdjacentHTML('beforeend', CATS.map((c,i) =>
     '<label class="chip"><input type="radio" name="cat" value="'+c.id+'" id="cat_'+c.id+'"'+(i===1?' checked':'')+'><span><span class="dot" style="background:var('+c.c+')"></span>'+c.name+'</span></label>').join(''));
 
-  function openSheet(item){
-    editing = item ? {ym: item.date.slice(0,7), id: item.id} : null;
-    $('sheetTitle').textContent = item ? 'Edit expense' : 'Add expense';
+  const PRESET = {
+    rent:  {cat:'housing', note:'Rent', day:1},
+    phone: {cat:'bills', note:'Phone contract', day:1},
+    other: {cat:'bills', note:'', day:1},
+  };
+  function openSheet(item, opt){
+    opt = opt || {};
+    const rule = opt.rule || null, preset = opt.preset || null;
+    editing = rule ? {kind:'rule', id:rule.id} : item ? {kind:'item', ym:item.date.slice(0,7), id:item.id} : null;
+    const src = rule || item || preset;
+    $('sheetTitle').textContent = rule ? 'Recurring expense' : item ? 'Edit expense' : preset ? 'Add recurring expense' : 'Add expense';
     $('curSym').textContent = curSymbol();
-    $('fAmount').value = item ? String(item.amt).replace('.', settings.currency==='EUR' ? ',' : '.') : '';
-    $('fNote').value = item ? (item.note||'') : '';
+    $('fAmount').value = src && src.amt ? String(src.amt).replace('.', settings.currency==='EUR' ? ',' : '.') : '';
+    $('fNote').value = src ? (src.note||'') : '';
     const defDate = viewYm === thisYm ? today : new Date(Number(viewYm.slice(0,4)), Number(viewYm.slice(5))-1, 1);
-    $('fDate').value = item ? item.date : ymOf(defDate)+'-'+String(defDate.getDate()).padStart(2,'0');
-    const cat = item ? item.cat : (lsGet('ledger.lastCat','groceries'));
+    $('fDate').value = item ? item.date : preset ? thisYm+'-'+pad(preset.day) : ymOf(defDate)+'-'+pad(defDate.getDate());
+    const cat = src && src.cat ? src.cat : lsGet('ledger.lastCat','groceries');
     const r = $('cat_'+cat) || $('cat_groceries'); r.checked = true;
+    $('fDateRow').hidden = !!rule; $('fDayRow').hidden = !rule; $('fDay').value = rule ? rule.day : '';
+    $('fRepeatRow').hidden = !!(rule || item); $('fRepeat').checked = !!preset;
+    const hint = rule ? 'Changes apply from the next time it is logged. Entries already in your history stay as they are.'
+      : item && item.rid ? 'This changes only this month\'s entry. To change every month, edit it under Recurring.'
+      : preset ? 'Set the date to the day it is paid. This month\'s payment is logged now, then again every month on that day.' : '';
+    $('fHint').textContent = hint; $('fHint').hidden = !hint;
     $('fErr').textContent = '';
-    const del = $('fDelete'); del.hidden = !item; del.classList.remove('armed'); del.textContent = 'Delete';
+    const del = $('fDelete'); del.hidden = !(item || rule); del.classList.remove('armed'); del.textContent = rule ? 'Stop repeating' : 'Delete';
     $('scrim').hidden = false; $('sheet').hidden = false;
     setTimeout(() => $('fAmount').focus(), 50);
   }
@@ -470,36 +576,65 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     e.preventDefault();
     const amt = parseAmt($('fAmount').value);
     if (!(amt > 0)) { $('fErr').textContent = 'Enter an amount above zero, e.g. 12,50.'; $('fAmount').focus(); return; }
-    const date = $('fDate').value;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $('fErr').textContent = 'Pick a date.'; return; }
     const cat = (document.querySelector('input[name=cat]:checked') || {}).value || 'other';
     const note = $('fNote').value.trim();
+    lsSet('ledger.lastCat', cat);
+
+    if (editing && editing.kind === 'rule') {
+      const day = Math.round(Number($('fDay').value));
+      if (!(day >= 1 && day <= 31)) { $('fErr').textContent = 'Enter a day between 1 and 31.'; return; }
+      const r = rules.find(x => x.id === editing.id);
+      if (r) Object.assign(r, {amt, cat, note, day});
+      closeAll(); render(); saveRules(); toast('Recurring expense updated');
+      return;
+    }
+
+    const date = $('fDate').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { $('fErr').textContent = 'Pick a date.'; return; }
     const ym = date.slice(0,7);
     const touched = new Set([ym]);
     let rec = {id: uid(), amt, cat, note, date, ts: Date.now()};
+    let newRule = null;
     if (editing) {
       const old = (months[editing.ym]||[]).find(i => i.id === editing.id);
       if (old) rec = {...old, amt, cat, note, date};
       months[editing.ym] = (months[editing.ym]||[]).filter(i => i.id !== editing.id);
       touched.add(editing.ym);
+    } else if ($('fRepeat').checked) {
+      newRule = {id: 'r' + uid(), amt, cat, note, day: Number(date.slice(8)), start: ym, skip: []};
+      rec.id = newRule.id + '-' + ym; rec.rid = newRule.id;
+      rules.push(newRule);
     }
     (months[ym] = months[ym] || []).push(rec);
-    lsSet('ledger.lastCat', cat);
     const wasEdit = !!editing;
     closeAll();
     viewYm = ym > thisYm ? thisYm : ym;
     render();
     touched.forEach(saveMonth);
-    toast(wasEdit ? 'Expense updated' : 'Added ' + fmt(amt) + ' · ' + catById[cat].name);
+    if (newRule) saveRules();
+    toast(wasEdit ? 'Expense updated' : newRule ? 'Added · repeats on the ' + ordinal(newRule.day) + ' of every month' : 'Added ' + fmt(amt) + ' · ' + catById[cat].name);
   });
 
   $('fDelete').addEventListener('click', () => {
     const btn = $('fDelete');
-    if (!btn.classList.contains('armed')) { btn.classList.add('armed'); btn.textContent = 'Tap again to delete'; return; }
+    const isRule = editing && editing.kind === 'rule';
+    if (!btn.classList.contains('armed')) { btn.classList.add('armed'); btn.textContent = isRule ? 'Tap again to stop' : 'Tap again to delete'; return; }
+    if (isRule) {
+      rules = rules.filter(r => r.id !== editing.id);
+      closeAll(); render(); saveRules(); toast('Stopped. Past entries stay in your history.');
+      return;
+    }
     const {ym, id} = editing;
+    const it = (months[ym]||[]).find(i => i.id === id);
     months[ym] = (months[ym]||[]).filter(i => i.id !== id);
     if (!months[ym].length) delete months[ym];
-    closeAll(); render(); saveMonth(ym); toast('Expense deleted');
+    let rulesChanged = false;
+    if (it && it.rid) {
+      const r = rules.find(x => x.id === it.rid);
+      const origYm = id.slice(it.rid.length + 1);
+      if (r && !r.skip.includes(origYm)) { r.skip.push(origYm); rulesChanged = true; }
+    }
+    closeAll(); render(); saveMonth(ym); if (rulesChanged) saveRules(); toast('Expense deleted');
   });
 
   // settings
@@ -530,6 +665,12 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   $('list').addEventListener('click', e => {
     const b = e.target.closest('.item'); if (!b || b.disabled) return;
     const it = (months[viewYm]||[]).find(i => i.id === b.dataset.id); if (it) openSheet(it);
+  });
+  $('recBody').addEventListener('click', e => {
+    const p = e.target.closest('.preset');
+    if (p) { openSheet(null, {preset: PRESET[p.dataset.preset]}); return; }
+    const row = e.target.closest('.recrow');
+    if (row) { const r = rules.find(x => x.id === row.dataset.rid); if (r) openSheet(null, {rule: r}); }
   });
   $('trend').addEventListener('click', e => { const c = e.target.closest('.tcol'); if (c) { viewYm = c.dataset.ym; render(); } });
   const tip = $('tip');
