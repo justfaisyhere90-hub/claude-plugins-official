@@ -348,6 +348,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
         <option value="AED">UAE dirham (AED)</option>
       </select>
     </label>
+    <div class="bk" id="cnSection">
+      <h4>Category names</h4>
+      <p class="hint">Rename any category. Past expenses move to the new name. Leave empty to use the original name.</p>
+      <div class="cbgrid" id="cnGrid"></div>
+    </div>
     <div class="bk" id="cbSection">
       <h4>Category limits</h4>
       <p class="hint">Get a warning at 85% and when a category goes over. Leave empty for no limit.</p>
@@ -384,7 +389,13 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     {id:'shopping',  name:'Shopping',       c:'--c7'},
     {id:'other',     name:'Other',          c:'--c8'},
   ];
+  CATS.forEach(c => c.def = c.name);
   const catById = Object.fromEntries(CATS.map(c=>[c.id,c]));
+  // custom names from settings; ids and colours never change, so old entries follow the new name
+  function applyCatNames(){
+    const n = (settings && settings.catNames) || {};
+    CATS.forEach(c => { const v = typeof n[c.id] === 'string' ? n[c.id].trim().slice(0,24) : ''; c.name = v || c.def; });
+  }
   const $ = id => document.getElementById(id);
 
   // ---------- state ----------
@@ -620,6 +631,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   }
 
   function renderMonth(){
+    applyCatNames();
     const M = data();
     const isSample = !hasReal();
     $('sampleBanner').hidden = !isSample;
@@ -763,8 +775,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   function esc(s){ return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
   // ---------- sheet ----------
-  $('fCats').insertAdjacentHTML('beforeend', CATS.map((c,i) =>
-    '<label class="chip"><input type="radio" name="cat" value="'+c.id+'" id="cat_'+c.id+'"'+(i===1?' checked':'')+'><span><span class="dot" style="background:var('+c.c+')"></span>'+c.name+'</span></label>').join(''));
+  function buildChips(){
+    $('fCats').innerHTML = '<legend>Category</legend>' + CATS.map((c,i) =>
+      '<label class="chip"><input type="radio" name="cat" value="'+c.id+'" id="cat_'+c.id+'"'+(i===1?' checked':'')+'><span><span class="dot" style="background:var('+c.c+')"></span>'+esc(c.name)+'</span></label>').join('');
+  }
+  buildChips();
 
   const PRESET = {
     rent:  {cat:'housing', note:'Rent', day:1},
@@ -773,6 +788,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   };
   function openSheet(item, opt){
     opt = opt || {};
+    buildChips();
     const rule = opt.rule || null, preset = opt.preset || null;
     editing = rule ? {kind:'rule', id:rule.id} : item ? {kind:'item', ym:item.date.slice(0,7), id:item.id} : null;
     const src = rule || item || preset;
@@ -874,7 +890,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     $('sCur').value = settings.currency || 'EUR';
     showLastBackup(); $('bkConfirm').hidden = true; pending = null;
     const lim = catLimits();
-    $('cbGrid').innerHTML = CATS.map(c => '<label for="cb_'+c.id+'"><span><span class="dot" style="background:var('+c.c+')"></span>'+c.name+'</span>'+
+    $('cnGrid').innerHTML = CATS.map(c => '<label for="cn_'+c.id+'"><span><span class="dot" style="background:var('+c.c+')"></span>'+esc(c.def)+'</span>'+
+      '<input class="t" id="cn_'+c.id+'" maxlength="24" autocomplete="off" placeholder="'+esc(c.def)+'" value="'+(c.name !== c.def ? esc(c.name) : '')+'"></label>').join('');
+    $('cbGrid').innerHTML = CATS.map(c => '<label for="cb_'+c.id+'"><span><span class="dot" style="background:var('+c.c+')"></span>'+esc(c.name)+'</span>'+
       '<input class="t num" id="cb_'+c.id+'" inputmode="decimal" placeholder="No limit" value="'+(lim[c.id] || '')+'"></label>').join('');
     $('scrim').hidden = false; $('settings').hidden = false;
     if (focusLimits) setTimeout(() => { $('cbSection').scrollIntoView({block:'start'}); const f = $('cb_' + (focusLimits === true ? CATS[1].id : focusLimits)); f && f.focus({preventScroll:true}); }, 60);
@@ -886,7 +904,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const b = raw ? parseAmt(raw) : 0;
     const cb = {};
     CATS.forEach(c => { const v = parseAmt($('cb_'+c.id).value || ''); if (v > 0) cb[c.id] = v; });
-    settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value, catBudgets: cb};
+    const cn = {};
+    CATS.forEach(c => { const v = $('cn_'+c.id).value.trim().slice(0,24); if (v && v !== c.def) cn[c.id] = v; });
+    settings = {...settings, budget: b > 0 ? b : 0, currency: $('sCur').value, catBudgets: cb, catNames: cn};
     closeAll(); render(); saveSettings(); toast('Settings saved');
   });
 
@@ -964,6 +984,10 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     if (s && s.catBudgets && typeof s.catBudgets === 'object' && !Object.keys(catLimits()).length) {
       const cb = {}; CATS.forEach(c => { const v = Number(s.catBudgets[c.id]); if (v > 0) cb[c.id] = v; });
       if (Object.keys(cb).length) { settings = {...settings, catBudgets: cb}; setChanged = true; }
+    }
+    if (s && s.catNames && typeof s.catNames === 'object' && !Object.keys(settings.catNames || {}).length) {
+      const cn = {}; CATS.forEach(c => { const v = s.catNames[c.id]; if (typeof v === 'string' && v.trim()) cn[c.id] = v.trim().slice(0,24); });
+      if (Object.keys(cn).length) { settings = {...settings, catNames: cn}; setChanged = true; }
     }
     const n = pending.add.length;
     pending = null; $('bkConfirm').hidden = true;
