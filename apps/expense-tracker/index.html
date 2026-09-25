@@ -185,6 +185,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .cbgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cbgrid label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--ink-2);font-weight:500}
 .cbgrid label span{display:flex;align-items:center;gap:6px}
+/* backup reminder */
+.remind{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px;font-size:14px}
+.remind .actions .btn{padding:10px}
 /* backup */
 .bk{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px}
 .bk h4{margin:0;font:600 13px/1.2 var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
@@ -220,6 +223,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <div class="banner" id="sampleBanner" hidden><b>Example data.</b> These figures only show how the app works. Add your first expense and they disappear.</div>
 
   <div class="alerts" id="alerts" hidden role="status"></div>
+
+  <div class="remind" id="remind" hidden role="status">
+    <span id="remindText"></span>
+    <div class="actions"><button type="button" class="btn" id="remindLater">Later</button><button type="button" class="btn primary" id="remindNow">Back up now</button></div>
+  </div>
 
   <section class="panel" id="budgetPanel">
     <h2>Budget <button class="linkbtn" id="budgetEdit">Set budget</button></h2>
@@ -573,6 +581,17 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       '</li>';
     }).join('') : '<li class="empty">Nothing spent this month yet.</li>';
 
+    // backup reminder (only where data lives on this device)
+    const lastB = lsGet('ledger.lastBackup', 0), snooze = lsGet('ledger.backupSnooze', 0);
+    const DAY = 86400000;
+    const firstTs = hasReal() ? Math.min(...Object.values(months).flat().map(i => Number(i.ts) || Date.now())) : Date.now();
+    const due = mode !== 'db' && !isSample && Date.now() > snooze &&
+      (lastB ? Date.now() - lastB > 30*DAY : Date.now() - firstTs > 7*DAY);
+    $('remind').hidden = !due;
+    if (due) $('remindText').textContent = lastB
+      ? 'Your last backup was ' + Math.floor((Date.now() - lastB)/DAY) + ' days ago. Your expenses are only on this phone, so save a fresh copy to iCloud.'
+      : 'You have not made a backup yet. Your expenses are only on this phone, so save a copy to iCloud.';
+
     // warning strip
     const warn = shown.filter(c => c.b && catStatus(c.v, c.b).key !== 'good').sort((a,b) => b.v/b.b - a.v/a.b);
     const al = $('alerts');
@@ -773,7 +792,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     if (!allItems().length && !rules.length) { toast('Nothing to back up yet'); return; }
     const data = {app:'monthly-expenses', version:1, exported:new Date().toISOString(), settings, rules, months};
     if (await saveFile('expenses-backup-' + stamp() + '.json', JSON.stringify(data, null, 1), 'application/json')) {
-      lsSet('ledger.lastBackup', Date.now()); showLastBackup(); toast('Backup saved');
+      lsSet('ledger.lastBackup', Date.now()); showLastBackup(); render(); toast('Backup saved');
     }
   });
   $('bkCsv').addEventListener('click', async () => {
@@ -827,6 +846,9 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     touched.forEach(saveMonth); saveRules(); if (setChanged) saveSettings();
     toast('Restored ' + n + ' expense' + (n === 1 ? '' : 's'));
   });
+
+  $('remindNow').addEventListener('click', () => $('bkJson').click());
+  $('remindLater').addEventListener('click', () => { lsSet('ledger.backupSnooze', Date.now() + 3*86400000); render(); toast('I will remind you in 3 days'); });
 
   // ---------- events ----------
   $('addBtn').addEventListener('click', () => openSheet(null));
