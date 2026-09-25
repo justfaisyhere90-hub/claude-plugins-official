@@ -185,6 +185,30 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .cbgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cbgrid label{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--ink-2);font-weight:500}
 .cbgrid label span{display:flex;align-items:center;gap:6px}
+/* view switch + year view */
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:999px;padding:3px;gap:3px}
+.seg button{border:0;background:none;border-radius:999px;padding:8px;font-weight:600;color:var(--ink-2)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.ychart{position:relative;display:grid;grid-template-columns:repeat(12,1fr);gap:4px;align-items:end;height:160px;border-bottom:1px solid var(--line)}
+.ycol{position:relative;height:100%;display:flex;flex-direction:column;justify-content:flex-end;background:none;border:0;padding:0}
+.ycol .tbar{opacity:.55}
+.ycol.top .tbar{opacity:1}
+.ycol:hover .tbar{opacity:.85}
+.ycol:disabled{cursor:default}
+.ycol .tval{font-size:11px}
+.bline{position:absolute;left:0;right:0;border-top:1.5px dashed var(--muted);pointer-events:none}
+.bline span{position:absolute;right:0;top:-17px;font-size:11px;color:var(--muted);background:var(--surface);padding:0 3px}
+.ylabels{display:grid;grid-template-columns:repeat(12,1fr);gap:4px;font-size:10.5px;color:var(--muted);text-align:center;margin-top:-4px}
+.ylabels .fut{opacity:.45}
+#yStats .v{white-space:normal;overflow:visible;font-size:16px}
+.pill{white-space:nowrap}
+.mrows{display:flex;flex-direction:column}
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 2px;border:0;border-bottom:1px dashed var(--line);background:none;text-align:left;width:100%}
+.mrow:last-child{border-bottom:0}
+.mrow:hover{background:var(--surface-2)}
+.mrow small{color:var(--muted);font-size:12.5px;margin-left:6px}
+.mrow .amt{font-weight:600}
+.mrow.empty-m{color:var(--muted)}
 /* backup reminder */
 .remind{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px;font-size:14px}
 .remind .actions .btn{padding:10px}
@@ -214,6 +238,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <button class="iconbtn" id="settingsBtn" aria-label="Settings and backup">⚙</button>
   </header>
 
+  <div class="seg" role="group" aria-label="View">
+    <button type="button" id="vMonth" aria-pressed="true">Month</button>
+    <button type="button" id="vYear" aria-pressed="false">Year</button>
+  </div>
+
   <section class="hero">
     <div class="eyebrow" id="heroEyebrow">Spent this month</div>
     <div class="total num" id="total">—</div>
@@ -229,33 +258,50 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <div class="actions"><button type="button" class="btn" id="remindLater">Later</button><button type="button" class="btn primary" id="remindNow">Back up now</button></div>
   </div>
 
-  <section class="panel" id="budgetPanel">
+  <section class="panel yview" hidden>
+    <h2>Year in numbers</h2>
+    <div class="stats" id="yStats"></div>
+  </section>
+
+  <section class="panel yview" hidden>
+    <h2>Month by month <span class="aside">tap a month</span></h2>
+    <div class="ychart" id="ychart"></div>
+    <div class="ylabels" id="ylabels"></div>
+    <div class="mrows" id="ymonths"></div>
+  </section>
+
+  <section class="panel yview" hidden>
+    <h2>Where it went this year</h2>
+    <ul class="cats" id="ycats"></ul>
+  </section>
+
+  <section class="panel mview" id="budgetPanel">
     <h2>Budget <button class="linkbtn" id="budgetEdit">Set budget</button></h2>
     <div id="budgetBody"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel mview">
     <h2>Recurring <span class="aside">logged each month</span></h2>
     <div id="recBody"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel mview">
     <h2>Month in numbers</h2>
     <div class="stats" id="stats"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel mview">
     <h2>Where it went <button class="linkbtn" id="catLimits">Set limits</button></h2>
     <ul class="cats" id="cats"></ul>
   </section>
 
-  <section class="panel">
+  <section class="panel mview">
     <h2>Last 6 months <span class="aside">tap a month</span></h2>
     <div class="trend" id="trend"></div>
     <div class="tlabels" id="tlabels"></div>
   </section>
 
-  <section class="panel">
+  <section class="panel mview">
     <h2>Expenses <span class="aside" id="listAside"></span></h2>
     <div id="list"></div>
   </section>
@@ -494,7 +540,86 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   }
 
   // ---------- render ----------
+  let view = lsGet('ledger.view', 'month') === 'year' ? 'year' : 'month';
   function render(){
+    renderMonth();
+    const y = view === 'year';
+    document.querySelectorAll('.mview').forEach(el => el.hidden = y);
+    document.querySelectorAll('.yview').forEach(el => el.hidden = !y);
+    $('vMonth').setAttribute('aria-pressed', String(!y)); $('vYear').setAttribute('aria-pressed', String(y));
+    if (y) { $('alerts').hidden = true; renderYear(); }
+    $('prev').setAttribute('aria-label', y ? 'Previous year' : 'Previous month');
+    $('next').setAttribute('aria-label', y ? 'Next year' : 'Next month');
+  }
+
+  function renderYear(){
+    const M = data();
+    const yr = viewYm.slice(0,4), thisY = thisYm.slice(0,4), prevY = String(Number(yr) - 1);
+    const lastM = yr === thisY ? Number(thisYm.slice(5)) : 12;
+    const yms = Array.from({length:12}, (_,i) => yr + '-' + pad(i+1));
+    const sumOf = ym => (M[ym]||[]).reduce((s,i) => s + i.amt, 0);
+    const totals = yms.map(sumOf);
+    const items = yms.flatMap(ym => M[ym] || []);
+    const total = totals.reduce((a,b) => a + b, 0);
+    const withData = yms.filter(ym => (M[ym]||[]).length).length;
+    const prevTotal = Array.from({length:lastM}, (_,i) => sumOf(prevY + '-' + pad(i+1))).reduce((a,b) => a + b, 0);
+
+    $('monthLabel').textContent = yr;
+    $('next').disabled = yr >= thisY;
+    $('heroEyebrow').textContent = yr === thisY ? 'Spent this year' : 'Spent in ' + yr;
+    $('total').textContent = fmt(total);
+    const sub = ['<span>' + items.length + (items.length === 1 ? ' expense' : ' expenses') + '</span>'];
+    if (prevTotal > 0) {
+      const d = (total - prevTotal) / prevTotal * 100;
+      const span = lastM < 12 ? monthName(yr+'-01','short') + '–' + monthName(yr+'-'+pad(lastM),'short') + ' ' + prevY : prevY;
+      sub.push('<span class="delta '+(d > 0 ? 'up' : 'down')+'">'+(d > 0 ? '▲ ' : '▼ ')+Math.abs(d).toFixed(0)+'% vs '+span+'</span>');
+    }
+    $('heroSub').innerHTML = sub.join('');
+
+    // stats
+    let hi = -1; totals.forEach((v,i) => { if (v > 0 && (hi < 0 || v > totals[hi])) hi = i; });
+    const byCat = {}; items.forEach(i => byCat[i.cat] = (byCat[i.cat]||0) + i.amt);
+    const ranked = CATS.map(c => ({...c, v: byCat[c.id]||0})).filter(c => c.v > 0).sort((a,b) => b.v - a.v);
+    $('yStats').innerHTML = [
+      ['Avg per month', withData ? fmt(total / withData) : '—'],
+      ['Highest month', hi >= 0 ? monthName(yms[hi],'short') + ' ' + fmt(totals[hi], 0) : '—'],
+      ['Top category', ranked[0] ? ranked[0].name : '—'],
+    ].map(s => '<div class="stat"><span class="k">'+s[0]+'</span><span class="v num" title="'+esc(s[1])+'">'+esc(s[1])+'</span></div>').join('');
+
+    // chart
+    const b = Number(settings.budget) || 0;
+    const top = Math.max(...totals, b, 1) * 1.15;
+    $('ychart').innerHTML = yms.map((ym,i) => {
+      const fut = i + 1 > lastM, h = totals[i] / top * 100;
+      return '<button class="ycol'+(i === hi ? ' top' : '')+'" data-ym="'+ym+'"'+(fut ? ' disabled' : '')+' data-tip="'+esc(monthName(ym))+': '+fmt(totals[i])+'" aria-label="'+esc(monthName(ym))+', '+fmt(totals[i])+'">'+
+        (i === hi ? '<span class="tval num" style="bottom:calc('+h+'% + 3px)">'+fmt(totals[i],0)+'</span>' : '')+
+        '<span class="tbar" style="height:'+h+'%"></span></button>';
+    }).join('') + (b ? '<div class="bline" style="bottom:'+(b / top * 100)+'%"><span>Budget</span></div>' : '');
+    $('ylabels').innerHTML = yms.map((ym,i) => '<span class="'+(i + 1 > lastM ? 'fut' : '')+'">'+monthName(ym,'short')+'</span>').join('');
+
+    // month rows
+    $('ymonths').innerHTML = yms.slice(0, lastM).map((ym,i) => {
+      const n = (M[ym]||[]).length, v = totals[i];
+      const pill = b && n ? (v > b ? '<span class="pill crit" title="Over budget by '+fmt(v - b)+'">⚠ '+fmt(v - b, 0)+' over</span>' : '<span class="pill good">✓ Within</span>') : '<span></span>';
+      return '<button class="mrow'+(n ? '' : ' empty-m')+'" data-ym="'+ym+'"><span>'+esc(new Date(Number(yr), i, 1).toLocaleDateString(undefined,{month:'long'}))+(n ? '<small>'+n+'</small>' : '')+'</span>'+pill+'<span class="amt num">'+(n ? fmt(v) : '—')+'</span></button>';
+    }).join('');
+
+    // categories
+    const lim = catLimits();
+    const max = ranked[0] ? ranked[0].v : 1;
+    $('ycats').innerHTML = ranked.length ? ranked.map(c => {
+      const avg = withData ? c.v / withData : 0, l = lim[c.id];
+      return '<li class="cat" title="'+esc(c.name)+': '+fmt(c.v)+'">'+
+        '<span class="name"><span class="dot" style="background:var('+c.c+')"></span>'+esc(c.name)+'</span>'+
+        '<span class="amt num">'+fmt(c.v)+'<span class="pct">'+(c.v/total*100).toFixed(0)+'%</span></span>'+
+        '<span class="track"><i style="width:'+(c.v/max*100)+'%;background:var('+c.c+')"></i></span>'+
+        '<span class="limit num"><span>Avg '+fmt(avg)+' / month'+(l ? ' · limit '+fmt(l,0) : '')+'</span>'+
+          (l && avg > l ? '<span class="pill crit">⚠ Avg over limit</span>' : '')+'</span>'+
+      '</li>';
+    }).join('') : '<li class="empty">Nothing spent in '+yr+' yet.</li>';
+  }
+
+  function renderMonth(){
     const M = data();
     const isSample = !hasReal();
     $('sampleBanner').hidden = !isSample;
@@ -859,8 +984,24 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   $('settingsBtn').addEventListener('click', () => openSettings());
   $('budgetEdit').addEventListener('click', () => openSettings());
   $('catLimits').addEventListener('click', () => openSettings(true));
-  $('prev').addEventListener('click', () => { viewYm = shiftYm(viewYm,-1); render(); });
-  $('next').addEventListener('click', () => { if (viewYm < thisYm) { viewYm = shiftYm(viewYm,1); render(); } });
+  $('prev').addEventListener('click', () => { viewYm = shiftYm(viewYm, view === 'year' ? -12 : -1); render(); });
+  $('next').addEventListener('click', () => {
+    if (view === 'year') { const n = shiftYm(viewYm, 12); viewYm = n > thisYm ? thisYm : n; render(); }
+    else if (viewYm < thisYm) { viewYm = shiftYm(viewYm,1); render(); }
+  });
+  function setView(v){ view = v; lsSet('ledger.view', v); render(); window.scrollTo({top:0}); }
+  $('vMonth').addEventListener('click', () => setView('month'));
+  $('vYear').addEventListener('click', () => setView('year'));
+  const openMonth = e => { const c = e.target.closest('[data-ym]'); if (c && !c.disabled) { viewYm = c.dataset.ym; setView('month'); } };
+  $('ychart').addEventListener('click', openMonth);
+  $('ymonths').addEventListener('click', openMonth);
+  $('ychart').addEventListener('pointermove', e => {
+    const c = e.target.closest('.ycol'); if (!c) { tip.hidden = true; return; }
+    const r = c.getBoundingClientRect(); const bar = c.querySelector('.tbar').getBoundingClientRect();
+    tip.textContent = c.dataset.tip; tip.hidden = false;
+    tip.style.left = (r.left + r.width/2 + scrollX) + 'px'; tip.style.top = (Math.min(bar.top, r.bottom) + scrollY - 26) + 'px';
+  });
+  $('ychart').addEventListener('pointerleave', () => tip.hidden = true);
   $('list').addEventListener('click', e => {
     const b = e.target.closest('.item'); if (!b || b.disabled) return;
     const it = (months[viewYm]||[]).find(i => i.id === b.dataset.id); if (it) openSheet(it);
