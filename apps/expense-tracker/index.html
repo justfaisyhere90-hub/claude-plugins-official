@@ -321,7 +321,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     <div class="row2">
       <label class="f" id="fDateRow">Date<input class="t" type="date" id="fDate"></label>
       <label class="f" id="fDayRow" hidden>Day of month<input class="t num" type="number" id="fDay" min="1" max="31" inputmode="numeric"></label>
-      <label class="f">Note<input class="t" id="fNote" maxlength="60" placeholder="e.g. REWE, BVG ticket"></label>
+      <label class="f">Note<input class="t" id="fNote" maxlength="60" placeholder="e.g. REWE, hotel"></label>
     </div>
     <label class="toggle" id="fRepeatRow"><input type="checkbox" id="fRepeat"> Repeat every month on this day</label>
     <p class="hint" id="fHint" hidden></p>
@@ -382,7 +382,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   const CATS = [
     {id:'housing',   name:'Rent & housing', c:'--c1'},
     {id:'groceries', name:'Groceries',      c:'--c2'},
-    {id:'transport', name:'Transport',      c:'--c3'},
+    {id:'transport', name:'Travel',         c:'--c3'},
     {id:'bills',     name:'Bills & phone',  c:'--c4'},
     {id:'eating',    name:'Eating out',     c:'--c5'},
     {id:'health',    name:'Health',         c:'--c6'},
@@ -540,7 +540,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
     const base = [
       ['housing',850,'Rent',1],['bills',42,'Phone contract',3],['bills',95,'Electricity',5],
       ['groceries',64.3,'REWE',2],['groceries',38.9,'Lidl',9],['groceries',52.15,'Aldi',16],['groceries',47.6,'REWE',23],
-      ['transport',58,'Deutschlandticket',1],['eating',18.5,'Lunch with team',11],['eating',32,'Dinner out',19],
+      ['transport',189,'Flight tickets',17],['eating',18.5,'Lunch with team',11],['eating',32,'Dinner out',19],
       ['health',12.99,'Pharmacy',14],['shopping',79.9,'Shoes',21],['other',200,'Transfer to family',25]
     ];
     for (let k=-5;k<=0;k++){
