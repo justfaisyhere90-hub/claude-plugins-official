@@ -228,6 +228,23 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 .split .track i{display:block;height:100%;border-radius:0 4px 4px 0;background:var(--ink-2);min-width:2px}
 .split li.saved .track i{background:var(--good)}
 .split li.neg .track i{background:var(--crit)}
+/* emergency buffer */
+#goalBody{display:flex;flex-direction:column;gap:12px}
+.goalbig{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.goalbig b{font:700 26px/1.1 var(--display)}
+.goalbig span{color:var(--muted)}
+.meter.goal > i{background:var(--good)}
+.gform{display:flex;flex-direction:column;gap:10px;background:var(--bg);border-radius:12px;padding:12px}
+.gmoves{display:flex;flex-direction:column}
+.gmove{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.gmove:last-child{border-bottom:0}
+.gmove small{color:var(--muted);font-size:12.5px;display:block}
+.gmove .amt{font-weight:600}
+.gmove .amt.out{color:var(--crit)}
+.xbtn{border:0;background:none;color:var(--muted);font-size:12.5px;padding:4px 6px;border-radius:6px}
+.xbtn.armed{background:var(--crit);color:#fff}
+.gactions{display:flex;gap:10px}
+.gactions .btn{padding:11px}
 /* backup reminder */
 .remind{display:flex;flex-direction:column;gap:10px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;padding:12px;font-size:14px}
 .remind .actions .btn{padding:10px}
@@ -302,6 +319,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   <section class="panel mview" id="incomePanel">
     <h2>Income &amp; savings <button class="linkbtn" id="incomeEdit">Set income</button></h2>
     <div id="incomeBody"></div>
+  </section>
+
+  <section class="panel mview" id="goalPanel">
+    <h2>Emergency buffer <button class="linkbtn" id="goalEdit" hidden>Edit goal</button></h2>
+    <div id="goalBody"></div>
   </section>
 
   <section class="panel mview" id="budgetPanel">
@@ -784,6 +806,7 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
 
     // income & savings
     renderIncome(items, total);
+    renderGoal();
 
     // budget
     const b = Number(settings.budget) || 0;
@@ -1122,6 +1145,11 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
       const cb = {}; CATS.forEach(c => { const v = Number(s.catBudgets[c.id]); if (v > 0) cb[c.id] = v; });
       if (Object.keys(cb).length) { settings = {...settings, catBudgets: cb}; setChanged = true; }
     }
+    if (s && s.goal && typeof s.goal === 'object' && Number(s.goal.target) > 0 && !settings.goal) {
+      const mv = (Array.isArray(s.goal.moves) ? s.goal.moves : []).filter(m => m && typeof m.amt === 'number' && /^\d{4}-\d{2}-\d{2}$/.test(m.date || ''))
+        .map(m => ({id: String(m.id || uid()), amt: m.amt, date: m.date, ts: Number(m.ts) || 0, ...(m.start ? {start: true} : {}), ...(m.note ? {note: String(m.note).slice(0,40)} : {})}));
+      settings = {...settings, goal: {name: 'Emergency buffer', target: Number(s.goal.target), moves: mv}}; setChanged = true;
+    }
     if (s && s.catNames && typeof s.catNames === 'object' && !Object.keys(settings.catNames || {}).length) {
       const cn = {}; CATS.forEach(c => { const v = s.catNames[c.id]; if (typeof v === 'string' && v.trim()) cn[c.id] = v.trim().slice(0,24); });
       if (Object.keys(cn).length) { settings = {...settings, catNames: cn}; setChanged = true; }
@@ -1253,6 +1281,98 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
   $('settingsBtn').addEventListener('click', () => openSettings());
   $('budgetEdit').addEventListener('click', () => openSettings());
+  // ---------- emergency buffer (money moved to savings is not spending) ----------
+  let goalUI = 'view';   // view | setup | add | use
+  const goal = () => settings.goal || null;
+  const goalSaved = g => (g.moves || []).reduce((a, m) => a + m.amt, 0);
+  function suggestedTarget(){
+    // three months of planned spending: fixed recurring costs + category limits, else recent average
+    const planned = rules.reduce((a, r) => a + r.amt, 0) + Object.values(catLimits()).reduce((a, v) => a + v, 0);
+    const recent = [1,2,3].map(k => (months[shiftYm(thisYm, -k)] || []).reduce((a, i) => a + i.amt, 0)).filter(v => v > 0);
+    const base = planned || (recent.length ? recent.reduce((a,b) => a + b, 0) / recent.length : 0);
+    return base ? Math.round(base * 3 / 100) * 100 : 3000;
+  }
+  function renderGoal(){
+    const g = goal();
+    $('goalEdit').hidden = !g || goalUI !== 'view';
+    const fm = (label, hint, btn) =>
+      '<div class="gform"><label class="f">'+label+'<input class="t num" id="gAmt" inputmode="decimal"></label>'+
+      (hint ? '<label class="f">'+hint+'<input class="t" id="gNote" maxlength="40"></label>' : '')+
+      '<p class="err" id="gErr"></p><div class="gactions"><button type="button" class="btn" data-g="cancel">Cancel</button><button type="button" class="btn primary" data-g="'+btn+'">Save</button></div></div>';
+    if (!g || goalUI === 'setup') {
+      const t = g ? g.target : suggestedTarget();
+      $('goalBody').innerHTML =
+        (g ? '' : '<p class="empty">Keep 2–3 months of spending aside for surprises like a doctor\'s bill or a last-minute flight. Money you move here is not counted as spending.</p>')+
+        '<div class="gform"><label class="f">Target<input class="t num" id="gTarget" inputmode="decimal" value="'+t+'"></label>'+
+        '<p class="hint">Suggested: about 3 months of your planned spending.</p>'+
+        (g ? '' : '<label class="f">Already saved (optional)<input class="t num" id="gStart" inputmode="decimal" placeholder="0"></label>')+
+        '<p class="err" id="gErr"></p><div class="gactions">'+(g ? '<button type="button" class="btn danger" data-g="remove">Remove goal</button>' : '')+
+        '<button type="button" class="btn primary" data-g="savegoal">'+(g ? 'Save' : 'Start saving')+'</button></div></div>';
+      return;
+    }
+    const saved = goalSaved(g), pct = Math.max(0, saved / g.target * 100), left = g.target - saved;
+    // pace: average money added per month over the last 3 months that had a deposit
+    const byMonth = {};
+    (g.moves || []).filter(m => m.amt > 0 && !m.start).forEach(m => byMonth[m.date.slice(0,7)] = (byMonth[m.date.slice(0,7)] || 0) + m.amt);
+    const lastMonths = Object.keys(byMonth).sort().slice(-3);
+    const pace = lastMonths.length ? lastMonths.reduce((a, k) => a + byMonth[k], 0) / lastMonths.length : 0;
+    const eta = left <= 0 ? '<span class="pill good">✓ Goal reached</span>'
+      : pace ? '<span class="hint">About <b>'+Math.ceil(left / pace)+' month'+(Math.ceil(left / pace) === 1 ? '' : 's')+'</b> to go at '+fmt(pace, 0)+' a month.</span>'
+      : '<span class="hint">Add what you move to savings each month to see when you reach it.</span>';
+    const moves = (g.moves || []).slice().sort((a,b) => b.date.localeCompare(a.date) || (b.ts||0) - (a.ts||0)).slice(0, 4);
+    $('goalBody').innerHTML =
+      '<div class="goalbig num"><b>'+fmt(saved, 0)+'</b><span>of '+fmt(g.target, 0)+' · '+Math.floor(pct)+'%</span></div>'+
+      '<div class="meter goal" role="img" aria-label="'+Math.floor(pct)+'% of the emergency buffer saved"><i style="width:'+Math.min(pct,100)+'%"></i></div>'+
+      eta+
+      (goalUI === 'add' ? fm('Amount moved to savings', null, 'add') : goalUI === 'use' ? fm('Amount taken out', 'What for? (optional)', 'use') :
+        '<div class="gactions"><button type="button" class="btn" data-g="openuse">Take out</button><button type="button" class="btn primary" data-g="openadd">+ Add money</button></div>')+
+      (moves.length ? '<div class="gmoves">'+moves.map(m =>
+        '<div class="gmove num"><span>'+(m.start ? 'Starting balance' : m.amt < 0 ? esc(m.note || 'Emergency') : 'Moved to savings')+
+        '<small>'+new Date(m.date + 'T12:00:00').toLocaleDateString(undefined,{day:'numeric', month:'short', year:'numeric'})+'</small></span>'+
+        '<span class="amt'+(m.amt < 0 ? ' out' : '')+'">'+(m.amt < 0 ? '− ' : '+ ')+fmt(Math.abs(m.amt))+'</span>'+
+        '<button type="button" class="xbtn" data-g="del" data-id="'+m.id+'" aria-label="Remove this entry">Remove</button></div>').join('')+'</div>' : '');
+    if (goalUI === 'add' || goalUI === 'use') setTimeout(() => $('gAmt') && $('gAmt').focus(), 30);
+  }
+  function saveGoal(g){ settings = {...settings, goal: g, mt: Date.now()}; saveSettings(); }
+  $('goalEdit').addEventListener('click', () => { goalUI = 'setup'; renderGoal(); });
+  $('goalBody').addEventListener('click', e => {
+    const b = e.target.closest('[data-g]'); if (!b) return;
+    const act = b.dataset.g, g = goal();
+    const err = m => { const el = $('gErr'); if (el) el.textContent = m; };
+    if (act === 'cancel') { goalUI = 'view'; renderGoal(); return; }
+    if (act === 'openadd') { goalUI = 'add'; renderGoal(); return; }
+    if (act === 'openuse') { goalUI = 'use'; renderGoal(); return; }
+    if (act === 'savegoal') {
+      const t = parseAmt($('gTarget').value);
+      if (!(t > 0)) { err('Enter a target above zero, e.g. 3800.'); return; }
+      const moves = g ? g.moves || [] : [];
+      const st = !g && $('gStart').value.trim() ? parseAmt($('gStart').value) : 0;
+      if (!g && st > 0) moves.push({id: uid(), amt: st, date: ymOf(today) + '-' + pad(today.getDate()), ts: Date.now(), start: true});
+      saveGoal({name: 'Emergency buffer', target: t, moves});
+      goalUI = 'view'; render(); toast(g ? 'Goal updated' : 'Emergency buffer started'); return;
+    }
+    if (act === 'remove') {
+      if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Tap again to remove'; return; }
+      settings = {...settings, mt: Date.now()}; delete settings.goal; saveSettings();
+      goalUI = 'view'; render(); toast('Goal removed'); return;
+    }
+    if (act === 'add' || act === 'use') {
+      const a = parseAmt($('gAmt').value);
+      if (!(a > 0)) { err('Enter an amount above zero.'); return; }
+      const note = act === 'use' ? ($('gNote').value.trim() || 'Emergency') : '';
+      const mv = {id: uid(), amt: act === 'add' ? a : -a, date: ymOf(today) + '-' + pad(today.getDate()), ts: Date.now(), ...(note ? {note} : {})};
+      saveGoal({...g, moves: [...(g.moves || []), mv]});
+      goalUI = 'view'; render();
+      const nowSaved = goalSaved(goal());
+      toast(act === 'add' ? (nowSaved >= g.target ? 'Goal reached! 🎉' : 'Added ' + fmt(a) + ' to your buffer') : 'Taken ' + fmt(a) + ' from your buffer');
+      return;
+    }
+    if (act === 'del') {
+      if (!b.classList.contains('armed')) { b.classList.add('armed'); b.textContent = 'Sure?'; return; }
+      saveGoal({...g, moves: (g.moves || []).filter(m => m.id !== b.dataset.id)}); render(); toast('Entry removed');
+    }
+  });
+
   $('incomeBody').addEventListener('change', e => {
     if (e.target.id !== 'onCallToggle') return;
     const ex = {...(settings.extra || {})};
