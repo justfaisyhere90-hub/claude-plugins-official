@@ -419,11 +419,19 @@ input.t,select.t{border:1px solid var(--line);background:var(--bg);border-radius
   settings = Object.assign(settings, lsGet('ledger.settings', {}));
   rules = lsGet('ledger.recurring', []).map(r => ({...r, skip:(r.skip||[]).slice()}));
 
-  // one-time preset requested by the owner: 375 limit for "Sending money home" (this-device app only)
-  if (!(window.claude && window.claude.use) && !lsGet('ledger.preset.otherLimit375', false)) {
-    const cb = {...(settings.catBudgets || {})};
-    if (!(Number(cb.other) > 0)) { cb.other = 375; settings = {...settings, catBudgets: cb}; lsSet('ledger.settings', settings); }
-    lsSet('ledger.preset.otherLimit375', true);
+  // one-time limit presets requested by the owner (this-device app only). Each runs once per device;
+  // "replace" overwrites an existing limit, otherwise only an empty limit is filled. Later edits in Settings are kept.
+  const LIMIT_PRESETS = [
+    {key:'otherLimit375',     cat:'other',     value:375, replace:false},
+    {key:'groceriesLimit350', cat:'groceries', value:350, replace:true},
+  ];
+  if (!(window.claude && window.claude.use)) {
+    LIMIT_PRESETS.forEach(pr => {
+      if (lsGet('ledger.preset.' + pr.key, false)) return;
+      const cb = {...(settings.catBudgets || {})};
+      if (pr.replace || !(Number(cb[pr.cat]) > 0)) { cb[pr.cat] = pr.value; settings = {...settings, catBudgets: cb}; lsSet('ledger.settings', settings); }
+      lsSet('ledger.preset.' + pr.key, true);
+    });
   }
 
   let writeChain = Promise.resolve();
